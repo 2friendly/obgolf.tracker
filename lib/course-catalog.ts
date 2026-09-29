@@ -8,8 +8,8 @@ export type CoursePreset = {
   name: string;
   teeName: string;
   pars: readonly number[];
-  distancesMetres?: readonly number[];
-  sourceUrl: string;
+  distancesMetres?: readonly (number | undefined)[];
+  sourceUrl?: string;
 };
 
 export const goldCoastCourses: readonly CoursePreset[] = [

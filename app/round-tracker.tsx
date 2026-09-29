@@ -5,7 +5,7 @@ import { ChevronRight, Flag, MapPinned, Pencil, Plus, RotateCcw, Trash2, UserPlu
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ActiveRound } from './active-round';
-import { goldCoastCourses } from '@/lib/course-catalog';
+import { goldCoastCourses, type CoursePreset } from '@/lib/course-catalog';
 import { calculateRoundSummary, getPlayerHoleStat, hydrateRound, inferRoundStatus, type RoundHole, type RoundRecord } from '@/lib/rounds';
 import { displayDistance, distanceLabel, rounded, storeDistance, type DistanceUnit } from '@/lib/preferences';
 
@@ -24,12 +24,14 @@ function blankRound(today:string):RoundRecord{
 
 export function RoundTracker({rounds,onSave,onDelete,today,pretty,distanceUnit}:Props){
  const [setup,setSetup]=useState<RoundRecord|null>(null),[review,setReview]=useState<RoundRecord|null>(null),[active,setActive]=useState<RoundRecord|null>(null),[saving,setSaving]=useState(false),[error,setError]=useState(''),[courseChoice,setCourseChoice]=useState('__new'),[saveState,setSaveState]=useState<'saved'|'saving'|'error'>('saved'),[reviewPlayerId,setReviewPlayerId]=useState('');
+ const [courseCatalog,setCourseCatalog]=useState<readonly CoursePreset[]>(goldCoastCourses);
  const saveTimer=useRef<ReturnType<typeof setTimeout>|null>(null),pendingSave=useRef<RoundRecord|null>(null),saveInFlight=useRef(false),saveHandler=useRef(onSave);
  useEffect(()=>{saveHandler.current=onSave;},[onSave]);
  useEffect(()=>()=>{if(saveTimer.current)clearTimeout(saveTimer.current);if(pendingSave.current)void saveHandler.current(pendingSave.current);},[]);
+ useEffect(()=>{const controller=new AbortController();void fetch('/api/courses',{signal:controller.signal}).then(async response=>{if(!response.ok)return;const catalog=await response.json() as CoursePreset[];if(Array.isArray(catalog)&&catalog.length)setCourseCatalog(catalog);}).catch(()=>{});return()=>controller.abort();},[]);
 
  const courses=useMemo(()=>{
-  const presets:CourseConfig[]=goldCoastCourses.map(course=>({
+  const presets:CourseConfig[]=courseCatalog.map(course=>({
    key:`preset:${course.id}`,title:course.name,teeName:course.teeName,
    holeCount:course.pars.length===9?'9':'18',sourceUrl:course.sourceUrl,
    holes:course.pars.map((par,index)=>({par,distance:course.distancesMetres?.[index]})),
@@ -43,7 +45,7 @@ export function RoundTracker({rounds,onSave,onDelete,today,pretty,distanceUnit}:
     played.set(identity,{key:`played:${identity}`,title:round.title,teeName,holeCount:round.holeCount,holes:round.roundHoles.map(hole=>({par:hole.par,distance:hole.distance}))});
   });
   return [...presets,...played.values()].sort((a,b)=>a.title.localeCompare(b.title)||a.teeName.localeCompare(b.teeName));
- },[rounds]);
+ },[courseCatalog,rounds]);
  const selectedCourse=courses.find(course=>course.key===courseChoice);
  const sorted=rounds.slice().sort((a,b)=>b.date.localeCompare(a.date));
 
