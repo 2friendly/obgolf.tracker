@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Activity, BarChart3, Gauge, Plus, Target } from 'lucide-react';
 
 export type ClubMetric={
@@ -74,8 +74,8 @@ function EfficiencyChart({readings,pretty}:{readings:Reading[];pretty:(date:stri
 export function ClubAnalytics({sessions,onLog,pretty}:Props){
  const readings=useMemo<Reading[]>(()=>sessions.flatMap<Reading>(session=>session.clubMetrics?.length?session.clubMetrics.map<Reading>(metric=>({...metric,club:safeClub(metric.club),sessionId:session.id,date:session.date,sessionTitle:session.title})):session.club||session.carry!==undefined||session.speed!==undefined?[{id:`legacy-${session.id}`,club:safeClub(session.club),sampleType:'Legacy' as const,carry:session.carry,clubSpeed:session.speed,sessionId:session.id,date:session.date,sessionTitle:session.title}]:[]).sort((a,b)=>a.date.localeCompare(b.date)),[sessions]);
  const clubs=useMemo(()=>[...new Set(readings.map(reading=>reading.club))].sort((a,b)=>a.localeCompare(b)),[readings]);
- const [club,setClub]=useState(''),[metric,setMetric]=useState<MetricKey>('carry'),[sampleType,setSampleType]=useState('All types');
- useEffect(()=>{if(!clubs.length)setClub('');else if(!clubs.includes(club))setClub(clubs.includes('Driver')?'Driver':clubs[0]);},[clubs,club]);
+ const [selectedClub,setClub]=useState(''),[metric,setMetric]=useState<MetricKey>('carry'),[sampleType,setSampleType]=useState('All types');
+ const club=clubs.includes(selectedClub)?selectedClub:clubs.includes('Driver')?'Driver':clubs[0]||'';
  const clubReadings=readings.filter(reading=>reading.club===club&&(sampleType==='All types'||reading.sampleType===sampleType));
  const types=[...new Set(readings.filter(reading=>reading.club===club).map(reading=>reading.sampleType))];
  const option=metricOptions.find(item=>item.key===metric)!;

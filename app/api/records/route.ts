@@ -1,9 +1,113 @@
-import { database } from '@/lib/records';
-import { z } from 'zod';
-const holeSchema=z.object({hole:z.number().int().min(1).max(18),par:z.number().int().min(3).max(6),score:z.number().int().min(1).max(20).nullable()});
-const playerSchema=z.object({id:z.string().min(1).max(100),name:z.string().trim().min(1).max(50),scores:z.array(z.number().int().min(1).max(20).nullable()).max(18)});
-const clubMetricSchema=z.object({id:z.string().min(1).max(100),club:z.string().trim().min(1).max(80),sampleType:z.enum(['Average','Best','Single shot']),clubSpeed:z.number().min(0).max(250).optional(),ballSpeed:z.number().min(0).max(300).optional(),smash:z.number().min(0).max(2).optional(),launch:z.number().min(-20).max(90).optional(),spin:z.number().min(0).max(20000).optional(),carry:z.number().min(0).max(600).optional(),total:z.number().min(0).max(600).optional(),notes:z.string().max(500).optional()});
-const schema=z.object({id:z.string().min(1).max(100),kind:z.enum(['session','task','expense','milestone','round']),title:z.string().trim().min(1).max(200),date:z.string().regex(/^\d{4}-\d{2}-\d{2}$/).or(z.literal('')),notes:z.string().max(5000).default(''),category:z.string().max(80).default(''),done:z.boolean().default(false),minutes:z.number().min(0).max(1440).optional(),cost:z.number().min(0).max(1000000).optional(),score:z.number().int().min(1).max(300).optional(),holes:z.enum(['9','18']).optional(),carry:z.number().min(0).max(600).optional(),speed:z.number().min(0).max(250).optional(),club:z.string().max(80).optional(),clubMetrics:z.array(clubMetricSchema).max(50).optional(),holeCount:z.enum(['9','18']).optional(),roundHoles:z.array(holeSchema).max(18).optional(),players:z.array(playerSchema).min(1).max(8).optional()}).superRefine((record,ctx)=>{if(record.kind==='round'&&(!record.holeCount||!record.roundHoles||record.roundHoles.length!==Number(record.holeCount)))ctx.addIssue({code:'custom',message:'Round scorecard does not match its hole count',path:['roundHoles']});if(record.kind==='round'&&record.players?.some(player=>player.scores.length!==Number(record.holeCount)))ctx.addIssue({code:'custom',message:'Player scorecard does not match the round length',path:['players']});});
-export async function GET(){try{const result=await database().prepare('SELECT data FROM records').all<{data:string}>();return Response.json(result.results.map(r=>JSON.parse(r.data)));}catch(e){console.error(e);return Response.json({error:'Could not load your records. Please retry.'},{status:503});}}
-export async function POST(req:Request){try{const parsed=schema.safeParse(await req.json());if(!parsed.success)return Response.json({error:'Please check the fields and try again.'},{status:400});const r=parsed.data;await database().prepare('INSERT INTO records (id,kind,data) VALUES (?,?,?) ON CONFLICT(id) DO UPDATE SET kind=excluded.kind,data=excluded.data').bind(r.id,r.kind,JSON.stringify(r)).run();return Response.json(r);}catch(e){console.error(e);return Response.json({error:'Could not save. Your input is still here.'},{status:503});}}
-export async function DELETE(req:Request){try{const id=new URL(req.url).searchParams.get('id');if(!id)return Response.json({error:'Missing record'},{status:400});await database().prepare('DELETE FROM records WHERE id=?').bind(id).run();return Response.json({ok:true});}catch(e){console.error(e);return Response.json({error:'Could not delete. Please retry.'},{status:503});}}
+import { createClient } from "@/lib/supabase/server";
+import { z } from "zod";
+
+const holeSchema = z.object({
+  hole: z.number().int().min(1).max(18),
+  par: z.number().int().min(3).max(6),
+  score: z.number().int().min(1).max(20).nullable(),
+});
+const playerSchema = z.object({
+  id: z.string().min(1).max(100),
+  name: z.string().trim().min(1).max(50),
+  scores: z.array(z.number().int().min(1).max(20).nullable()).max(18),
+});
+const clubMetricSchema = z.object({
+  id: z.string().min(1).max(100),
+  club: z.string().trim().min(1).max(80),
+  sampleType: z.enum(["Average", "Best", "Single shot"]),
+  clubSpeed: z.number().min(0).max(250).optional(),
+  ballSpeed: z.number().min(0).max(300).optional(),
+  smash: z.number().min(0).max(2).optional(),
+  launch: z.number().min(-20).max(90).optional(),
+  spin: z.number().min(0).max(20000).optional(),
+  carry: z.number().min(0).max(600).optional(),
+  total: z.number().min(0).max(600).optional(),
+  notes: z.string().max(500).optional(),
+});
+const recordSchema = z.object({
+  id: z.string().min(1).max(100),
+  kind: z.enum(["session", "task", "expense", "milestone", "round"]),
+  title: z.string().trim().min(1).max(200),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).or(z.literal("")),
+  notes: z.string().max(5000).default(""),
+  category: z.string().max(80).default(""),
+  done: z.boolean().default(false),
+  minutes: z.number().min(0).max(1440).optional(),
+  cost: z.number().min(0).max(1000000).optional(),
+  score: z.number().int().min(1).max(300).optional(),
+  holes: z.enum(["9", "18"]).optional(),
+  carry: z.number().min(0).max(600).optional(),
+  speed: z.number().min(0).max(250).optional(),
+  club: z.string().max(80).optional(),
+  clubMetrics: z.array(clubMetricSchema).max(50).optional(),
+  holeCount: z.enum(["9", "18"]).optional(),
+  roundHoles: z.array(holeSchema).max(18).optional(),
+  players: z.array(playerSchema).min(1).max(8).optional(),
+}).superRefine((record, context) => {
+  if (record.kind === "round" && (!record.holeCount || !record.roundHoles || record.roundHoles.length !== Number(record.holeCount))) {
+    context.addIssue({ code: "custom", message: "Round scorecard does not match its hole count", path: ["roundHoles"] });
+  }
+  if (record.kind === "round" && record.players?.some((player) => player.scores.length !== Number(record.holeCount))) {
+    context.addIssue({ code: "custom", message: "Player scorecard does not match the round length", path: ["players"] });
+  }
+});
+
+async function authenticatedClient() {
+  const supabase = await createClient();
+  const { data: { user }, error } = await supabase.auth.getUser();
+  return { supabase, user: error ? null : user };
+}
+
+export async function GET() {
+  try {
+    const { supabase, user } = await authenticatedClient();
+    if (!user) return Response.json({ error: "Sign in required" }, { status: 401 });
+    const { data, error } = await supabase
+      .from("records")
+      .select("data")
+      .eq("user_id", user.id)
+      .order("updated_at", { ascending: false });
+    if (error) throw error;
+    return Response.json((data ?? []).map((row) => row.data));
+  } catch (error) {
+    console.error(error);
+    return Response.json({ error: "Could not load your records. Please retry." }, { status: 503 });
+  }
+}
+
+export async function POST(request: Request) {
+  try {
+    const parsed = recordSchema.safeParse(await request.json());
+    if (!parsed.success) return Response.json({ error: "Please check the fields and try again." }, { status: 400 });
+    const { supabase, user } = await authenticatedClient();
+    if (!user) return Response.json({ error: "Sign in required" }, { status: 401 });
+    const record = parsed.data;
+    const { error } = await supabase.from("records").upsert({
+      id: record.id,
+      user_id: user.id,
+      kind: record.kind,
+      data: record,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: "user_id,id" });
+    if (error) throw error;
+    return Response.json(record);
+  } catch (error) {
+    console.error(error);
+    return Response.json({ error: "Could not save. Your input is still here." }, { status: 503 });
+  }
+}
+
+export async function DELETE(request: Request) {
+  try {
+    const id = new URL(request.url).searchParams.get("id");
+    if (!id) return Response.json({ error: "Missing record" }, { status: 400 });
+    const { supabase, user } = await authenticatedClient();
+    if (!user) return Response.json({ error: "Sign in required" }, { status: 401 });
+    const { error } = await supabase.from("records").delete().eq("user_id", user.id).eq("id", id);
+    if (error) throw error;
+    return Response.json({ ok: true });
+  } catch (error) {
+    console.error(error);
+    return Response.json({ error: "Could not delete. Please retry." }, { status: 503 });
+  }
+}
