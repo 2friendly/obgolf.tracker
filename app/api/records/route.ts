@@ -1,15 +1,35 @@
 import { createClient } from "@/lib/supabase/server";
 import { z } from "zod";
 
+const shotSchema = z.object({
+  id: z.string().min(1).max(100),
+  shotNumber: z.number().int().min(1).max(40),
+  club: z.string().max(80),
+  result: z.enum(["good", "left", "right", "short", "long", "top", "fat", "thin", "ob", "water", "other"]),
+  distance: z.number().min(0).max(1000).optional(),
+  penaltyStrokes: z.number().int().min(0).max(4),
+  notes: z.string().max(500).optional(),
+});
+const playerHoleStatSchema = z.object({
+  playerId: z.string().min(1).max(100),
+  score: z.number().int().min(1).max(30).nullable(),
+  putts: z.number().int().min(0).max(10).nullable(),
+  teeResult: z.enum(["in_play", "left", "right", "ob", "water"]).nullable(),
+  penalties: z.number().int().min(0).max(10),
+  completed: z.boolean(),
+  shots: z.array(shotSchema).max(40),
+});
 const holeSchema = z.object({
   hole: z.number().int().min(1).max(18),
   par: z.number().int().min(3).max(6),
-  score: z.number().int().min(1).max(20).nullable(),
+  score: z.number().int().min(1).max(30).nullable(),
+  distance: z.number().min(0).max(1000).optional(),
+  playerStats: z.array(playerHoleStatSchema).max(8).optional(),
 });
 const playerSchema = z.object({
   id: z.string().min(1).max(100),
   name: z.string().trim().min(1).max(50),
-  scores: z.array(z.number().int().min(1).max(20).nullable()).max(18),
+  scores: z.array(z.number().int().min(1).max(30).nullable()).max(18),
 });
 const clubMetricSchema = z.object({
   id: z.string().min(1).max(100),
@@ -43,12 +63,21 @@ const recordSchema = z.object({
   holeCount: z.enum(["9", "18"]).optional(),
   roundHoles: z.array(holeSchema).max(18).optional(),
   players: z.array(playerSchema).min(1).max(8).optional(),
+  teeName: z.string().max(80).optional(),
+  status: z.enum(["setup", "active", "complete"]).optional(),
+  activeHole: z.number().int().min(1).max(18).optional(),
+  startedAt: z.string().datetime().optional(),
+  completedAt: z.string().datetime().optional(),
+  clientUpdatedAt: z.string().datetime().optional(),
 }).superRefine((record, context) => {
   if (record.kind === "round" && (!record.holeCount || !record.roundHoles || record.roundHoles.length !== Number(record.holeCount))) {
     context.addIssue({ code: "custom", message: "Round scorecard does not match its hole count", path: ["roundHoles"] });
   }
   if (record.kind === "round" && record.players?.some((player) => player.scores.length !== Number(record.holeCount))) {
     context.addIssue({ code: "custom", message: "Player scorecard does not match the round length", path: ["players"] });
+  }
+  if (record.kind === "round" && record.roundHoles?.some((hole) => hole.playerStats?.some((stat) => !record.players?.some((player) => player.id === stat.playerId)))) {
+    context.addIssue({ code: "custom", message: "Hole data references an unknown player", path: ["roundHoles"] });
   }
 });
 
