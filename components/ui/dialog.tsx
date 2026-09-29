@@ -51,7 +51,6 @@ function DialogContent({
   className,
   children,
   showCloseButton = true,
-  onOpenAutoFocus,
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Content> & {
   showCloseButton?: boolean
@@ -65,18 +64,6 @@ function DialogContent({
           "app-dialog-content fixed z-50 grid w-full max-w-[calc(100%-2rem)] gap-4 rounded-lg border bg-background p-6 shadow-lg duration-200 outline-none data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 sm:max-w-lg",
           className
         )}
-        onOpenAutoFocus={(event) => {
-          onOpenAutoFocus?.(event)
-          if (
-            !event.defaultPrevented &&
-            typeof window !== "undefined" &&
-            window.matchMedia("(max-width: 620px)").matches
-          ) {
-            event.preventDefault()
-            const content = event.currentTarget as HTMLElement | null
-            content?.focus({ preventScroll: true })
-          }
-        }}
         {...props}
       >
         {children}
