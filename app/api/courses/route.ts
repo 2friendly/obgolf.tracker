@@ -26,6 +26,7 @@ export async function GET() {
       if (teeHoles.length !== tee.holes_count) return [];
       return [{
         id: tee.id,
+        courseId: course.id,
         name: course.name,
         teeName: tee.name,
         pars: teeHoles.map((hole) => hole.par),

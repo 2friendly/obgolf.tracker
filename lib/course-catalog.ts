@@ -5,6 +5,7 @@
  */
 export type CoursePreset = {
   id: string;
+  courseId?: string;
   name: string;
   teeName: string;
   pars: readonly number[];
