@@ -15,6 +15,11 @@ alter table public.records enable row level security;
 revoke all on table public.records from anon, authenticated;
 grant select, insert, update, delete on table public.records to authenticated;
 
+drop policy if exists "Users can read their own records" on public.records;
+drop policy if exists "Users can create their own records" on public.records;
+drop policy if exists "Users can update their own records" on public.records;
+drop policy if exists "Users can delete their own records" on public.records;
+
 create policy "Users can read their own records"
   on public.records for select
   to authenticated
