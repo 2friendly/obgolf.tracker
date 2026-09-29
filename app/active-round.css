@@ -8,4 +8,5 @@
 .penalty-choices{grid-template-columns:repeat(4,1fr)}
 .review-holes>button{grid-template-columns:38px repeat(5,minmax(45px,1fr)) 22px}
 @media(max-width:620px){.review-holes>button{grid-template-columns:34px repeat(5,minmax(38px,1fr)) 18px}}
+.active-round-modal{translate:none!important}
 .hole-progress button{flex-basis:44px;width:44px;height:44px}.setup-hole select,.setup-hole input{height:44px}.shot-results button{min-height:44px}
