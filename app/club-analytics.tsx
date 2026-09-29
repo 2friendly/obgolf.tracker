@@ -1,6 +1,7 @@
 'use client';
 import { useMemo, useState } from 'react';
 import { Activity, BarChart3, Gauge, Plus, Target } from 'lucide-react';
+import { displayDistance, displaySpeed, distanceLabel, speedLabel, type UserPreferences } from '@/lib/preferences';
 
 export type ClubMetric={
  id:string;
@@ -16,15 +17,15 @@ export type ClubMetric={
  notes?:string;
 };
 type SessionLike={id:string;date:string;title:string;club?:string;carry?:number;speed?:number;clubMetrics?:ClubMetric[]};
-type Props={sessions:SessionLike[];onLog:()=>void;pretty:(date:string)=>string};
+type Props={sessions:SessionLike[];preferences:UserPreferences;onLog:()=>void;pretty:(date:string)=>string};
 type Reading=Omit<ClubMetric,'sampleType'>&{sessionId:string;date:string;sessionTitle:string;sampleType:ClubMetric['sampleType']|'Legacy'};
 type MetricKey='carry'|'total'|'clubSpeed'|'ballSpeed'|'smash'|'launch'|'spin';
 
-const metricOptions:{key:MetricKey;label:string;unit:string;digits:number}[]=[
- {key:'carry',label:'Carry',unit:'m',digits:1},
- {key:'total',label:'Total distance',unit:'m',digits:1},
- {key:'clubSpeed',label:'Club speed',unit:'mph',digits:1},
- {key:'ballSpeed',label:'Ball speed',unit:'mph',digits:1},
+const getMetricOptions=(preferences:UserPreferences):{key:MetricKey;label:string;unit:string;digits:number}[]=>[
+ {key:'carry',label:'Carry',unit:distanceLabel(preferences.distanceUnit),digits:1},
+ {key:'total',label:'Total distance',unit:distanceLabel(preferences.distanceUnit),digits:1},
+ {key:'clubSpeed',label:'Club speed',unit:speedLabel(preferences.speedUnit),digits:1},
+ {key:'ballSpeed',label:'Ball speed',unit:speedLabel(preferences.speedUnit),digits:1},
  {key:'smash',label:'Smash factor',unit:'',digits:2},
  {key:'launch',label:'Launch',unit:'°',digits:1},
  {key:'spin',label:'Backspin',unit:'rpm',digits:0}
@@ -50,7 +51,7 @@ function TrendChart({points,label,unit,digits,pretty}:{points:{date:string;value
  </svg></div>;
 }
 
-function EfficiencyChart({readings,pretty}:{readings:Reading[];pretty:(date:string)=>string}){
+function EfficiencyChart({readings,pretty,distanceUnit,speedUnit}:{readings:Reading[];pretty:(date:string)=>string;distanceUnit:string;speedUnit:string}){
  const points=readings.filter(reading=>reading.clubSpeed!==undefined&&reading.carry!==undefined).map(reading=>({x:reading.clubSpeed!,y:reading.carry!,...reading}));
  if(points.length<2)return <div className="analytics-empty compact"><Gauge size={26}/><strong>Efficiency needs two samples</strong><span>Track club speed and carry together to reveal the relationship.</span></div>;
  const width=560,height=280,left=54,right=22,top=22,bottom=46;
@@ -63,16 +64,17 @@ function EfficiencyChart({readings,pretty}:{readings:Reading[];pretty:(date:stri
  const covariance=points.reduce((sum,point)=>sum+(point.x-avgX)*(point.y-avgY),0);
  const denominator=Math.sqrt(points.reduce((sum,point)=>sum+(point.x-avgX)**2,0)*points.reduce((sum,point)=>sum+(point.y-avgY)**2,0));
  const correlation=denominator?covariance/denominator:0;
- return <><div className="efficiency-meta"><span><b>{slope.toFixed(2)} m</b> carry per extra mph</span><span><b>{correlation.toFixed(2)}</b> correlation</span></div><div className="efficiency-chart"><svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Club speed versus carry distance">
+ return <><div className="efficiency-meta"><span><b>{slope.toFixed(2)} {distanceUnit}</b> carry per extra {speedUnit}</span><span><b>{correlation.toFixed(2)}</b> correlation</span></div><div className="efficiency-chart"><svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Club speed versus carry distance">
   <line x1={left} x2={width-right} y1={height-bottom} y2={height-bottom} className="analytics-gridline"/><line x1={left} x2={left} y1={top} y2={height-bottom} className="analytics-gridline"/>
   <line x1={x(minX)} y1={y(slope*minX+intercept)} x2={x(maxX)} y2={y(slope*maxX+intercept)} className="regression-line"/>
-  {points.map((point,index)=><circle key={index} cx={x(point.x)} cy={y(point.y)} r="6" className="analytics-dot"><title>{point.sessionTitle} · {pretty(point.date)} · {point.x} mph / {point.y} m</title></circle>)}
-  <text x={(left+width-right)/2} y={height-10} textAnchor="middle" className="analytics-axis">Club speed (mph)</text><text x="14" y={(top+height-bottom)/2} transform={`rotate(-90 14 ${(top+height-bottom)/2})`} textAnchor="middle" className="analytics-axis">Carry (m)</text>
+  {points.map((point,index)=><circle key={index} cx={x(point.x)} cy={y(point.y)} r="6" className="analytics-dot"><title>{point.sessionTitle} · {pretty(point.date)} · {fmt(point.x)} {speedUnit} / {fmt(point.y)} {distanceUnit}</title></circle>)}
+  <text x={(left+width-right)/2} y={height-10} textAnchor="middle" className="analytics-axis">Club speed ({speedUnit})</text><text x="14" y={(top+height-bottom)/2} transform={`rotate(-90 14 ${(top+height-bottom)/2})`} textAnchor="middle" className="analytics-axis">Carry ({distanceUnit})</text>
  </svg></div></>;
 }
 
-export function ClubAnalytics({sessions,onLog,pretty}:Props){
- const readings=useMemo<Reading[]>(()=>sessions.flatMap<Reading>(session=>session.clubMetrics?.length?session.clubMetrics.map<Reading>(metric=>({...metric,club:safeClub(metric.club),sessionId:session.id,date:session.date,sessionTitle:session.title})):session.club||session.carry!==undefined||session.speed!==undefined?[{id:`legacy-${session.id}`,club:safeClub(session.club),sampleType:'Legacy' as const,carry:session.carry,clubSpeed:session.speed,sessionId:session.id,date:session.date,sessionTitle:session.title}]:[]).sort((a,b)=>a.date.localeCompare(b.date)),[sessions]);
+export function ClubAnalytics({sessions,preferences,onLog,pretty}:Props){
+ const metricOptions=getMetricOptions(preferences);
+ const readings=useMemo<Reading[]>(()=>sessions.flatMap<Reading>(session=>session.clubMetrics?.length?session.clubMetrics.map<Reading>(metric=>({...metric,carry:displayDistance(metric.carry,preferences.distanceUnit),total:displayDistance(metric.total,preferences.distanceUnit),clubSpeed:displaySpeed(metric.clubSpeed,preferences.speedUnit),ballSpeed:displaySpeed(metric.ballSpeed,preferences.speedUnit),club:safeClub(metric.club),sessionId:session.id,date:session.date,sessionTitle:session.title})):session.club||session.carry!==undefined||session.speed!==undefined?[{id:`legacy-${session.id}`,club:safeClub(session.club),sampleType:'Legacy' as const,carry:displayDistance(session.carry,preferences.distanceUnit),clubSpeed:displaySpeed(session.speed,preferences.speedUnit),sessionId:session.id,date:session.date,sessionTitle:session.title}]:[]).sort((a,b)=>a.date.localeCompare(b.date)),[sessions,preferences.distanceUnit,preferences.speedUnit]);
  const clubs=useMemo(()=>[...new Set(readings.map(reading=>reading.club))].sort((a,b)=>a.localeCompare(b)),[readings]);
  const [selectedClub,setClub]=useState(''),[metric,setMetric]=useState<MetricKey>('carry'),[sampleType,setSampleType]=useState('All types');
  const club=clubs.includes(selectedClub)?selectedClub:clubs.includes('Driver')?'Driver':clubs[0]||'';
@@ -88,7 +90,7 @@ export function ClubAnalytics({sessions,onLog,pretty}:Props){
   <section className="panel analytics-controls"><div className="metric-picker">{metricOptions.map(item=><button key={item.key} className={metric===item.key?'active':''} onClick={()=>setMetric(item.key)}>{item.label}</button>)}</div>{types.length>1&&<div className="sample-filter"><span>Sample</span><select value={sampleType} onChange={event=>setSampleType(event.target.value)}><option>All types</option>{types.map(type=><option key={type}>{type}</option>)}</select></div>}</section>
   <div className="analytics-kpis"><article><span>LATEST</span><strong>{fmt(latest,option.digits)}<small>{option.unit}</small></strong><em>{points.at(-1)?pretty(points.at(-1)!.date):'No sample'}</em></article><article><span>AVERAGE</span><strong>{values.length?fmt(mean(values),option.digits):'—'}<small>{option.unit}</small></strong><em>{values.length} measured samples</em></article><article><span>RANGE</span><strong>{values.length?`${fmt(Math.min(...values),option.digits)}–${fmt(Math.max(...values),option.digits)}`:'—'}<small>{option.unit}</small></strong><em>Observed minimum to maximum</em></article><article><span>CHANGE</span><strong className={change!==undefined&&change>0?'positive':''}>{change===undefined?'—':`${change>0?'+':''}${fmt(change,option.digits)}`}<small>{option.unit}</small></strong><em>First to latest sample</em></article></div>
   <section className="panel analytics-chart-panel"><div className="sectionhead"><div><span className="eyebrow">PROGRESSION</span><h2>{club} · {option.label}</h2></div><span className="badge">{sampleType.toUpperCase()}</span></div><TrendChart points={points} label={option.label} unit={option.unit} digits={option.digits} pretty={pretty}/><p className="analytics-note">For the cleanest trend, compare the same sample type and similar simulator conditions.</p></section>
-  <div className="analytics-grid"><section className="panel"><div className="sectionhead"><div><span className="eyebrow">EFFICIENCY</span><h2>Speed → carry</h2></div><Target size={19}/></div><EfficiencyChart readings={clubReadings} pretty={pretty}/></section><section className="panel"><div className="sectionhead"><div><span className="eyebrow">DELIVERY PROFILE</span><h2>{club} averages</h2></div><Gauge size={19}/></div><div className="delivery-grid">{metricOptions.slice(2).map(item=>{const available=clubReadings.flatMap(reading=>reading[item.key]===undefined?[]:[reading[item.key] as number]);return <div key={item.key}><span>{item.label}</span><strong>{available.length?fmt(mean(available),item.digits):'—'} <small>{item.unit}</small></strong></div>;})}</div></section></div>
-  <section className="panel club-table-panel"><div className="sectionhead"><div><span className="eyebrow">CLUB BENCHMARKS</span><h2>Your current bag</h2></div><span className="badge">{readings.length} SAMPLES</span></div><div className="club-table"><div className="club-table-head"><span>Club</span><span>Samples</span><span>Avg carry</span><span>Best carry</span><span>Avg speed</span><span>Avg smash</span><span>Carry change</span></div>{summaries.map(row=><button key={row.name} onClick={()=>{setClub(row.name);setMetric('carry');}}><strong>{row.name}</strong><span>{row.samples}</span><span>{fmt(row.avgCarry)} m</span><span>{fmt(row.bestCarry)} m</span><span>{fmt(row.avgSpeed)} mph</span><span>{fmt(row.avgSmash,2)}</span><span className={row.carryChange!==undefined&&row.carryChange>0?'positive':''}>{row.carryChange===undefined?'—':`${row.carryChange>0?'+':''}${fmt(row.carryChange)} m`}</span></button>)}</div></section>
+  <div className="analytics-grid"><section className="panel"><div className="sectionhead"><div><span className="eyebrow">EFFICIENCY</span><h2>Speed → carry</h2></div><Target size={19}/></div><EfficiencyChart readings={clubReadings} pretty={pretty} distanceUnit={distanceLabel(preferences.distanceUnit)} speedUnit={speedLabel(preferences.speedUnit)}/></section><section className="panel"><div className="sectionhead"><div><span className="eyebrow">DELIVERY PROFILE</span><h2>{club} averages</h2></div><Gauge size={19}/></div><div className="delivery-grid">{metricOptions.slice(2).map(item=>{const available=clubReadings.flatMap(reading=>reading[item.key]===undefined?[]:[reading[item.key] as number]);return <div key={item.key}><span>{item.label}</span><strong>{available.length?fmt(mean(available),item.digits):'—'} <small>{item.unit}</small></strong></div>;})}</div></section></div>
+  <section className="panel club-table-panel"><div className="sectionhead"><div><span className="eyebrow">CLUB BENCHMARKS</span><h2>Your current bag</h2></div><span className="badge">{readings.length} SAMPLES</span></div><div className="club-table"><div className="club-table-head"><span>Club</span><span>Samples</span><span>Avg carry</span><span>Best carry</span><span>Avg speed</span><span>Avg smash</span><span>Carry change</span></div>{summaries.map(row=><button key={row.name} onClick={()=>{setClub(row.name);setMetric('carry');}}><strong>{row.name}</strong><span>{row.samples}</span><span>{fmt(row.avgCarry)} {distanceLabel(preferences.distanceUnit)}</span><span>{fmt(row.bestCarry)} {distanceLabel(preferences.distanceUnit)}</span><span>{fmt(row.avgSpeed)} {speedLabel(preferences.speedUnit)}</span><span>{fmt(row.avgSmash,2)}</span><span className={row.carryChange!==undefined&&row.carryChange>0?'positive':''}>{row.carryChange===undefined?'—':`${row.carryChange>0?'+':''}${fmt(row.carryChange)} ${distanceLabel(preferences.distanceUnit)}`}</span></button>)}</div></section>
  </>}</div>;
 }
