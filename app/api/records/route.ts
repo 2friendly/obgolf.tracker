@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { z } from "zod";
+import { clubMetricSchema, importSourceSchema, MAX_READINGS } from '@/lib/club-import';
 
 const shotSchema = z.object({
   id: z.string().min(1).max(100),
@@ -31,19 +32,6 @@ const playerSchema = z.object({
   name: z.string().trim().min(1).max(50),
   scores: z.array(z.number().int().min(1).max(30).nullable()).max(18),
 });
-const clubMetricSchema = z.object({
-  id: z.string().min(1).max(100),
-  club: z.string().trim().min(1).max(80),
-  sampleType: z.enum(["Average", "Best", "Single shot"]),
-  clubSpeed: z.number().min(0).max(250).optional(),
-  ballSpeed: z.number().min(0).max(300).optional(),
-  smash: z.number().min(0).max(2).optional(),
-  launch: z.number().min(-20).max(90).optional(),
-  spin: z.number().min(0).max(20000).optional(),
-  carry: z.number().min(0).max(600).optional(),
-  total: z.number().min(0).max(600).optional(),
-  notes: z.string().max(500).optional(),
-});
 const recordSchema = z.object({
   id: z.string().min(1).max(100),
   kind: z.enum(["session", "task", "expense", "milestone", "round"]),
@@ -59,7 +47,8 @@ const recordSchema = z.object({
   carry: z.number().min(0).max(600).optional(),
   speed: z.number().min(0).max(250).optional(),
   club: z.string().max(80).optional(),
-  clubMetrics: z.array(clubMetricSchema).max(50).optional(),
+  clubMetrics: z.array(clubMetricSchema).max(MAX_READINGS).optional(),
+  clubImports: z.array(importSourceSchema).max(10).optional(),
   holeCount: z.enum(["9", "18"]).optional(),
   roundHoles: z.array(holeSchema).max(18).optional(),
   players: z.array(playerSchema).min(1).max(8).optional(),
@@ -70,6 +59,12 @@ const recordSchema = z.object({
   completedAt: z.string().datetime().optional(),
   clientUpdatedAt: z.string().datetime().optional(),
 }).superRefine((record, context) => {
+  if ((record.clubImports ?? []).reduce((sum, source) => sum + source.rawText.length + (source.reviewedText?.length ?? 0), 0) > 500_000) {
+    context.addIssue({ code: 'custom', message: 'Imported sources exceed session limit', path: ['clubImports'] });
+  }
+  if (record.clubMetrics?.some(metric => metric.importId && !record.clubImports?.some(source => source.id === metric.importId))) {
+    context.addIssue({ code: 'custom', message: 'Missing import source', path: ['clubMetrics'] });
+  }
   if (record.kind === "round" && (!record.holeCount || !record.roundHoles || record.roundHoles.length !== Number(record.holeCount))) {
     context.addIssue({ code: "custom", message: "Round scorecard does not match its hole count", path: ["roundHoles"] });
   }

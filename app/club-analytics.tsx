@@ -2,20 +2,9 @@
 import { useMemo, useState } from 'react';
 import { Activity, BarChart3, Gauge, Plus, Target } from 'lucide-react';
 import { displayDistance, displaySpeed, distanceLabel, speedLabel, type UserPreferences } from '@/lib/preferences';
+import type { ClubMetric } from '@/lib/club-import';
+export type { ClubMetric } from '@/lib/club-import';
 
-export type ClubMetric={
- id:string;
- club:string;
- sampleType:'Average'|'Best'|'Single shot';
- clubSpeed?:number;
- ballSpeed?:number;
- smash?:number;
- launch?:number;
- spin?:number;
- carry?:number;
- total?:number;
- notes?:string;
-};
 type SessionLike={id:string;date:string;title:string;club?:string;carry?:number;speed?:number;clubMetrics?:ClubMetric[]};
 type Props={sessions:SessionLike[];preferences:UserPreferences;onLog:()=>void;pretty:(date:string)=>string};
 type Reading=Omit<ClubMetric,'sampleType'>&{sessionId:string;date:string;sessionTitle:string;sampleType:ClubMetric['sampleType']|'Legacy'};
