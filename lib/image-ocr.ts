@@ -1,5 +1,6 @@
 import type { Worker } from 'tesseract.js';
 import { detectSimulatorTable, enhanceCell, findTableRows, simulatorHeaders } from './simulator-table';
+import { extractMetricTable } from './ocr-metric-table';
 
 function canvas(width: number, height: number) {
   const element = document.createElement('canvas'); element.width = width; element.height = height;
@@ -21,14 +22,25 @@ export async function readGolfImage(file: File, worker: Worker, onProgress: (mes
     const words = data.blocks?.flatMap(block => block.paragraphs.flatMap(paragraph => paragraph.lines.flatMap(line => line.words))) ?? [];
     const detected = detectSimulatorTable(words);
     if (!detected) {
+      const table = extractMetricTable(words);
+      if (table) return { ...table, rawText: `Positioned OCR table:\n${data.text}\nCell extraction:\n${table.rawText}`, table: true, layout: 'generic' as const };
       // Keep the established label/table reader for other layouts.
       await worker.setParameters({ tessedit_pageseg_mode: PSM.SINGLE_BLOCK });
-      const result = await worker.recognize(enlarged.element);
-      return { text: result.data.text, rawText: result.data.text, confidence: result.data.confidence, table: false };
+      const result = await worker.recognize(enlarged.element, {}, { text: true, blocks: true });
+      const blockWords = result.data.blocks?.flatMap(block => block.paragraphs.flatMap(paragraph => paragraph.lines.flatMap(line => line.words))) ?? [];
+      const blockTable = extractMetricTable(blockWords);
+      if (blockTable) return { ...blockTable, rawText: `Positioned OCR table:\n${result.data.text}\nCell extraction:\n${blockTable.rawText}`, table: true, layout: 'generic' as const };
+      return { text: result.data.text, rawText: result.data.text, confidence: result.data.confidence, table: false, layout: 'text' as const };
     }
     const layout = { ...detected, centers: detected.centers.map(center => center / scale), headerBottom: detected.headerBottom / scale, characterHeight: detected.characterHeight / scale };
     const rows = findTableRows(original.context.getImageData(0, 0, bitmap.width, bitmap.height), layout);
-    if (!rows.length) throw new Error('The table headers were found, but no shot rows could be located. Crop to the table or use Export CSV.');
+    if (!rows.length) {
+      // The template's pixel row finder targets photographed light tables.
+      // Dark themes can still be reconstructed from the recognised positions.
+      const table = extractMetricTable(words);
+      if (table) return { ...table, rawText: `Positioned OCR table:\n${data.text}\nCell extraction:\n${table.rawText}`, table: true, layout: 'generic' as const };
+      throw new Error('The table headers were found, but no shot rows could be located. Crop to the table or use Export CSV.');
+    }
     if (rows.length > 50) throw new Error('Crop to fewer than 50 visible rows per photo, or use Export CSV for the full session.');
     await worker.setParameters({ tessedit_pageseg_mode: PSM.SINGLE_LINE });
     const csvRows = [['Source row', 'Sample Type', ...simulatorHeaders].join(',')];
@@ -64,6 +76,6 @@ export async function readGolfImage(file: File, worker: Worker, onProgress: (mes
       csvRows.push([index + 1, 'Single shot', ...cells].join(','));
     }
     const note = 'Detected simulator shot table. Confirm distance and speed units; headers do not specify them. The dark summary footer is excluded to avoid counting averages as shots.';
-    return { text: csvRows.join('\n'), rawText: `${note}\n${detected.inferredHeader ? 'VLA header position inferred from the complete neighbouring columns; verify the layout.\n' : ''}\nInitial OCR:\n${data.text}\nCell extraction:\n${sourceCells.join('\n')}`, confidence: confidences.reduce((sum, value) => sum + value, 0) / confidences.length, table: true };
+    return { text: csvRows.join('\n'), rawText: `${note}\n${detected.inferredHeader ? 'VLA header position inferred from the complete neighbouring columns; verify the layout.\n' : ''}\nInitial OCR:\n${data.text}\nCell extraction:\n${sourceCells.join('\n')}`, confidence: confidences.reduce((sum, value) => sum + value, 0) / confidences.length, table: true, layout: 'simulator' as const };
   } finally { bitmap.close(); }
 }

@@ -39,7 +39,7 @@ export function ClubImport({ preferences, existing, sources, onImport }: {
   const [distanceUnit, setDistanceUnit] = useState(preferences.distanceUnit), [speedUnit, setSpeedUnit] = useState(preferences.speedUnit);
   const [sampleType, setSampleType] = useState<ClubMetric['sampleType']>('Single shot');
   const [fileName, setFileName] = useState(''), [format, setFormat] = useState<ImportSource['format']>('csv');
-  const [imageUrl, setImageUrl] = useState(''), [tableDetected, setTableDetected] = useState(false);
+  const [imageUrl, setImageUrl] = useState(''), [imageLayout, setImageLayout] = useState<'simulator' | 'generic' | 'text'>('text');
   const [text, setText] = useState(''), [rawText, setRawText] = useState(''), [confidence, setConfidence] = useState<number>();
   const [busy, setBusy] = useState(false), [status, setStatus] = useState(''), [error, setError] = useState('');
   const [preview, setPreview] = useState<Preview | null>(null), [excluded, setExcluded] = useState<string[]>([]), [confirmed, setConfirmed] = useState(false);
@@ -48,7 +48,7 @@ export function ClubImport({ preferences, existing, sources, onImport }: {
   useEffect(() => () => { if (imageUrl) URL.revokeObjectURL(imageUrl); }, [imageUrl]);
   function invalidate() { setPreview(null); setConfirmed(false); }
   async function upload(file: File) {
-    invalidate(); setError(''); setText(''); setRawText(''); setConfidence(undefined); setFileName(''); setImageUrl(''); setTableDetected(false); ocrPhase.current = '';
+    invalidate(); setError(''); setText(''); setRawText(''); setConfidence(undefined); setFileName(''); setImageUrl(''); setImageLayout('text'); ocrPhase.current = '';
     const extension = file.name.split('.').pop()?.toLowerCase();
     const image = ['png', 'jpg', 'jpeg', 'webp'].includes(extension ?? '');
     if (!image && !['csv', 'txt', 'json'].includes(extension ?? '')) { setError('Choose a PNG, JPG, WebP, CSV, TXT or JSON file. Convert HEIC photos to JPG first.'); return; }
@@ -67,7 +67,7 @@ export function ClubImport({ preferences, existing, sources, onImport }: {
         await engine.setParameters({ preserve_interword_spaces: '1' });
         const result = await readGolfImage(file, engine, message => { ocrPhase.current = message; if (active.current) setStatus(message); });
         extracted = result.text;
-        if (active.current) { setConfidence(result.confidence); setRawText(result.rawText); setTableDetected(result.table); setImageUrl(URL.createObjectURL(file)); }
+        if (active.current) { setConfidence(result.confidence); setRawText(result.rawText); setImageLayout(result.layout); setImageUrl(URL.createObjectURL(file)); }
       } else extracted = await file.text();
       if (!extracted.trim()) throw new Error('No text found. Try a sharper, cropped screenshot or a structured export.');
       if (extracted.length > MAX_SOURCE_LENGTH) throw new Error('Too much text. Split this export into smaller files.');
@@ -123,7 +123,7 @@ export function ClubImport({ preferences, existing, sources, onImport }: {
       {busy && <p role="status" className="import-status">{status || 'Preparing your review…'}</p>}
       {fileName && <>
         {imageUrl && <details><summary>Compare with uploaded photo</summary><Image src={imageUrl} alt="Uploaded results for comparison with extracted measurements" width={1000} height={600} unoptimized style={{ width: '100%', height: 'auto' }}/></details>}
-        {tableDetected && <p className="import-warning">Simulator shot table detected. Check the file speed and distance units above: this table does not label them. The average footer is excluded. Correct flagged values below, or leave them out. The original OCR text remains available.</p>}
+        {imageLayout !== 'text' && <p className="import-warning">{imageLayout === 'simulator' ? 'Simulator shot table detected. Check the file speed and distance units above: this table does not label them. The average footer is excluded.' : 'Shot table detected from column positions. Check the headers and units; unlabelled measurements use your selected file units. Recognised summary rows are excluded. Unsupported columns are kept in the source text.'} Correct flagged values below, or leave them out. The original OCR text remains available.</p>}
         <p><strong>{fileName}</strong>{confidence !== undefined && <span className="import-warning"> · OCR confidence {Math.round(confidence)}% — verify every value</span>}</p>
         <details><summary>Check or correct extracted text</summary><label className="field">Source text<textarea aria-label="Extracted source text" maxLength={MAX_SOURCE_LENGTH} value={text} disabled={busy} onChange={event => { setText(event.target.value); invalidate(); }}/></label><p className="muted">Supported: named CSV/JSON columns, spaced tables, or labels such as Carry: 180. Missing measurements stay empty.</p></details>
         <button className="button" type="button" disabled={busy || !club.trim() || !text.trim()} onClick={() => void review()}>Review measurements</button>

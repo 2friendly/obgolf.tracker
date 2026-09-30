@@ -49,7 +49,7 @@ const aliases: Record<MetricField, string[]> = {
 function keyName(value: string) {
   return value.toLowerCase().replace(/\([^)]*\)|\[[^\]]*\]/g, '').replace(/(?:km\/h|kmh|mph|yards?|yds?|metres?|meters?|mtrs|rpm|deg|°)\s*$/i, '').replace(/[^a-z]/g, '');
 }
-function fieldFor(key: string): MetricField | undefined {
+export function fieldFor(key: string): MetricField | undefined {
   return metricFields.find(field => aliases[field].some(alias => keyName(alias) === keyName(key)));
 }
 function numeric(value: unknown): number | undefined {
