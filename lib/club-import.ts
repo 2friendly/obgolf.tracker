@@ -9,7 +9,12 @@ export const clubMetricSchema = z.object({
   sampleType: z.enum(['Average', 'Best', 'Single shot']),
   clubSpeed: z.number().min(0).max(250).optional(), ballSpeed: z.number().min(0).max(300).optional(),
   smash: z.number().min(0).max(2).optional(), launch: z.number().min(-20).max(90).optional(),
-  spin: z.number().min(0).max(20000).optional(), carry: z.number().min(0).max(600).optional(),
+  spin: z.number().min(-20000).max(20000).optional(), carry: z.number().min(0).max(600).optional(),
+  sideSpin: z.number().min(-20000).max(20000).optional(),
+  offline: z.number().min(-600).max(600).optional(),
+  horizontalLaunch: z.number().min(-90).max(90).optional(),
+  apex: z.number().min(0).max(300).optional(),
+  distanceToPin: z.number().min(0).max(2000).optional(),
   total: z.number().min(0).max(600).optional(), notes: z.string().max(500).optional(),
   importId: z.string().max(100).optional(), sourceRow: z.number().int().positive().optional(),
 });
@@ -28,16 +33,21 @@ export const importRequestSchema = z.object({
   speedUnit: z.enum(['mph', 'kmh']), sampleType: clubMetricSchema.shape.sampleType,
 });
 type ImportOptions = z.infer<typeof importRequestSchema>;
-export const metricFields = ['carry', 'total', 'clubSpeed', 'ballSpeed', 'smash', 'launch', 'spin'] as const;
-type MetricField = typeof metricFields[number];
+export const metricFields = ['carry', 'total', 'clubSpeed', 'ballSpeed', 'smash', 'launch', 'spin', 'sideSpin', 'offline', 'horizontalLaunch', 'apex', 'distanceToPin'] as const;
+export const distanceFields: readonly string[] = ['carry', 'total', 'offline', 'apex', 'distanceToPin'];
+export type MetricField = typeof metricFields[number];
+export type ImportIssue = { sourceRow: number; field: MetricField; rawValue: string; message: string };
 const aliases: Record<MetricField, string[]> = {
-  carry: ['carry', 'carrydistance'], total: ['total', 'totaldistance', 'distance'],
+  carry: ['carry', 'carrydistance', 'totalcarry'], total: ['total', 'totaldistance', 'distance'],
   clubSpeed: ['clubspeed', 'clubheadspeed', 'headspeed', 'chs'], ballSpeed: ['ballspeed', 'bs'],
-  smash: ['smash', 'smashfactor'], launch: ['launch', 'launchangle', 'launchv', 'vertlaunch', 'vertical launch'],
+  smash: ['smash', 'smashfactor'], launch: ['launch', 'launchangle', 'launchv', 'vertlaunch', 'vertical launch', 'vla'],
   spin: ['spin', 'spinrate', 'backspin', 'totalspin'],
+  sideSpin: ['sidespin'], offline: ['offline', 'offlinedistance', 'lateral distance'],
+  horizontalLaunch: ['hla', 'horizontal launch', 'horizontal launch angle'],
+  apex: ['apex', 'peakheight', 'maxheight'], distanceToPin: ['disttopin', 'distancetopin'],
 };
 function keyName(value: string) {
-  return value.toLowerCase().replace(/\([^)]*\)|\[[^\]]*\]/g, '').replace(/(?:km\/h|kmh|mph|yards?|yds?|metres?|meters?|rpm|deg|°)\s*$/i, '').replace(/[^a-z]/g, '');
+  return value.toLowerCase().replace(/\([^)]*\)|\[[^\]]*\]/g, '').replace(/(?:km\/h|kmh|mph|yards?|yds?|metres?|meters?|mtrs|rpm|deg|°)\s*$/i, '').replace(/[^a-z]/g, '');
 }
 function fieldFor(key: string): MetricField | undefined {
   return metricFields.find(field => aliases[field].some(alias => keyName(alias) === keyName(key)));
@@ -46,7 +56,7 @@ function numeric(value: unknown): number | undefined {
   if (typeof value === 'number') return Number.isFinite(value) ? value : undefined;
   if (typeof value !== 'string' || !value.trim() || /^(?:n\/a|na|--?|—)$/i.test(value.trim())) return undefined;
   // Do not turn OCR letters into guessed numbers, or accept a partially read value.
-  const match = value.trim().match(/^([-+]?\d+(?:[.,]\d+)?)(?:\s*(?:m|yd|yds|yards?|mph|km\/h|kmh|rpm|deg|°))?$/i);
+  const match = value.trim().match(/^([-+]?\d+(?:[.,]\d+)?)(?:\s*(?:m|mtrs|yd|yds|yards?|mph|km\/h|kmh|rpm|deg|°))?$/i);
   return match ? Number(/^[-+]?\d{1,3},\d{3}$/.test(match[1]) ? match[1].replace(',', '') : match[1].replace(',', '.')) : undefined;
 }
 function textRows(text: string): Record<string, unknown>[] {
@@ -111,6 +121,7 @@ export function parseClubImport(input: ImportOptions) {
   }
   if (rows.length > MAX_READINGS) throw new Error(`Import at most ${MAX_READINGS} readings at a time. Split this export into smaller files.`);
   const warnings: string[] = [];
+  const issues: ImportIssue[] = [];
   const readings: ClubMetric[] = [];
   rows.forEach((row, index) => {
     const reading: ClubMetric = { id: crypto.randomUUID(), club: options.club, sampleType: options.sampleType, sourceRow: index + 1 };
@@ -126,10 +137,16 @@ export function parseClubImport(input: ImportOptions) {
       }
       const field = fieldFor(key); if (!field) continue;
       let value = numeric(raw);
-      if (value === undefined) { if (raw !== undefined && raw !== null && String(raw).trim() && !/^(?:n\/a|na|--?|—)$/i.test(String(raw).trim())) warnings.push(`Row ${index + 1}: check ${key} (${String(raw).slice(0, 40)}).`); continue; }
+      if (value === undefined) {
+        if (raw !== undefined && raw !== null && String(raw).trim() && !/^(?:n\/a|na|--?|—)$/i.test(String(raw).trim())) {
+          const message = `Row ${index + 1}: check ${key} (${String(raw).slice(0, 40)}).`;
+          warnings.push(message); issues.push({ sourceRow: index + 1, field, rawValue: String(raw).slice(0, 100), message });
+        }
+        continue;
+      }
       const unitText = `${key} ${typeof raw === 'string' ? raw : ''}`;
-      if (field === 'carry' || field === 'total') {
-        const unit: DistanceUnit = /\b(yds?|yards?)\b/i.test(unitText) ? 'yd' : /\b(m|metres?|meters?)\b/i.test(unitText) ? 'm' : options.distanceUnit;
+      if (distanceFields.includes(field)) {
+        const unit: DistanceUnit = /\b(yds?|yards?)\b/i.test(unitText) ? 'yd' : /\b(m|mtrs|metres?|meters?)\b/i.test(unitText) ? 'm' : options.distanceUnit;
         value = storeDistance(value, unit);
       }
       if (field === 'clubSpeed' || field === 'ballSpeed') {
@@ -138,7 +155,10 @@ export function parseClubImport(input: ImportOptions) {
       }
       const checked = clubMetricSchema.shape[field].safeParse(value);
       if (checked.success) reading[field] = value;
-      else warnings.push(`Row ${index + 1}: ${key} is outside the supported range; correct it before importing.`);
+      else {
+        const message = `Row ${index + 1}: ${key} is outside the supported range; correct it before importing.`;
+        warnings.push(message); issues.push({ sourceRow: index + 1, field, rawValue: String(raw).slice(0, 100), message });
+      }
     }
     if (metricFields.some(field => reading[field] !== undefined)) {
       const valid = clubMetricSchema.safeParse(reading);
@@ -146,5 +166,5 @@ export function parseClubImport(input: ImportOptions) {
     } else warnings.push(`Row ${index + 1}: no recognised measurements; row skipped.`);
   });
   if (!readings.length) throw new Error('No measurements recognised. Use headers such as Carry, Club Speed, Ball Speed, Smash Factor, Launch Angle and Spin Rate, or labelled text such as “Carry: 180”.');
-  return { readings, warnings, sourceRows: rows.length };
+  return { readings, warnings, issues, sourceRows: rows.length };
 }

@@ -29,6 +29,7 @@ body{background:#101712;color:#f2f5eb}.shell{max-width:1600px;padding:24px 42px 
 .import-preview{max-height:360px;overflow:auto;border:1px solid #354334;border-radius:10px;overscroll-behavior:contain}
 .import-reading{display:flex;gap:12px;padding:14px;min-height:56px;border-bottom:1px solid #354334;align-items:flex-start}
 .import-reading:last-child{border-bottom:0}.import-reading>span{min-width:0;overflow-wrap:anywhere}.import-values{display:flex;flex-wrap:wrap;gap:6px 14px;color:#b9c6b4;font-size:14px;margin-top:8px}
+.import-reading>div{min-width:0;flex:1}.import-row-select{min-height:44px;min-width:28px;display:flex;align-items:flex-start;padding-top:2px}.import-reading .field input{width:100%;min-width:0;min-height:48px;font-size:16px}.import-reading small{overflow-wrap:anywhere}.import-reading details{margin-top:8px}
 .import-confirm{display:flex;align-items:center;gap:12px;min-height:48px}.import-reading input,.import-confirm input{width:22px;height:22px;flex-shrink:0;accent-color:#a8c36e}
 .import-sources{margin-top:12px}.import-sources pre{max-height:200px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px;background:#0e1710;padding:12px;border-radius:8px}
 @media(max-width:480px){.import-panel{padding:12px}.import-settings{gap:12px}.import-panel .button{width:100%;white-space:normal}.import-settings .field{font-size:12px}.import-settings input,.import-settings select{min-height:48px}}

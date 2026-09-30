@@ -2,10 +2,35 @@
 import { useEffect, useRef, useState } from 'react';
 import { Upload, X } from 'lucide-react';
 import type { Worker } from 'tesseract.js';
-import { MAX_READINGS, MAX_SOURCE_LENGTH, metricFields, type ClubMetric, type ImportSource } from '@/lib/club-import';
-import { displayDistance, displaySpeed, rounded, type UserPreferences } from '@/lib/preferences';
+import { MAX_READINGS, MAX_SOURCE_LENGTH, metricFields, distanceFields, clubMetricSchema, type ClubMetric, type ImportSource, type ImportIssue, type MetricField } from '@/lib/club-import';
+import Image from 'next/image';
+import { readGolfImage } from '@/lib/image-ocr';
+import { displayDistance, displaySpeed, rounded, storeDistance, storeSpeed, type UserPreferences, type DistanceUnit, type SpeedUnit } from '@/lib/preferences';
 
-type Preview = { readings: ClubMetric[]; warnings: string[]; sourceRows: number };
+type Preview = { readings: ClubMetric[]; warnings: string[]; issues?: ImportIssue[]; sourceRows: number };
+const metricLabels: Record<MetricField, string> = { carry: 'Carry', total: 'Total distance', clubSpeed: 'Club speed', ballSpeed: 'Ball speed', smash: 'Smash', launch: 'Vertical launch', spin: 'Back spin', sideSpin: 'Side spin', offline: 'Offline', horizontalLaunch: 'Horizontal launch', apex: 'Peak height', distanceToPin: 'Distance to pin' };
+const isSpeed = (field: MetricField) => field === 'clubSpeed' || field === 'ballSpeed';
+function ReadingReview({ reading, issues, included, distanceUnit, speedUnit, onInclude, onCorrect, onEditing }: {
+  reading: ClubMetric; issues: ImportIssue[]; included: boolean; distanceUnit: DistanceUnit; speedUnit: SpeedUnit;
+  onInclude: (included: boolean) => void; onCorrect: (field: MetricField, value: string) => boolean; onEditing: () => void;
+}) {
+  const [inputs, setInputs] = useState<Partial<Record<MetricField, string>>>({});
+  const shown = (field: MetricField) => rounded(distanceFields.includes(field) ? displayDistance(reading[field], distanceUnit) : isSpeed(field) ? displaySpeed(reading[field], speedUnit) : reading[field], 2);
+  const unit = (field: MetricField) => distanceFields.includes(field) ? distanceUnit : isSpeed(field) ? speedUnit === 'kmh' ? 'km/h' : 'mph' : field === 'spin' || field === 'sideSpin' ? 'rpm' : field === 'launch' || field === 'horizontalLaunch' ? '°' : '';
+  const fields = metricFields.filter(field => reading[field] !== undefined || issues.some(issue => issue.field === field));
+  return <article className="import-reading"><label className="import-row-select"><input type="checkbox" aria-label={`Include row ${reading.sourceRow}`} checked={included} onChange={event => onInclude(event.target.checked)}/></label><div>
+    <strong>Row {reading.sourceRow} · {reading.club} · {reading.sampleType}</strong>
+    <span className="import-values">{fields.filter(field => reading[field] !== undefined).map(field => <span key={field}>{metricLabels[field]}: {shown(field)} {unit(field)}</span>)}</span>
+    <details><summary>{issues.length ? `Correct ${issues.length} flagged ${issues.length === 1 ? 'value' : 'values'}` : 'Edit extracted values'}</summary><div className="import-settings">{fields.map(field => {
+      const issue = issues.find(issue => issue.field === field);
+      return <label className="field" key={field}>{metricLabels[field]} {unit(field)}{issue && <small className="import-warning">OCR: {issue.rawValue}</small>}<input type="number" inputMode="decimal" step="any" aria-label={`Row ${reading.sourceRow} ${metricLabels[field]}`} value={inputs[field] ?? shown(field) ?? ''} onChange={event => { setInputs(current => ({ ...current, [field]: event.target.value })); onEditing(); }} onBlur={event => {
+        if (inputs[field] === undefined) return;
+        const valid = onCorrect(field, event.target.value);
+        setInputs(current => { const next = { ...current }; if (valid) delete next[field]; else next[field] = String(shown(field) ?? ''); return next; });
+      }}/></label>;
+    })}</div></details>
+  </div></article>;
+}
 export function ClubImport({ preferences, existing, sources, onImport }: {
   preferences: UserPreferences; existing: ClubMetric[]; sources: ImportSource[];
   onImport: (readings: ClubMetric[], source: ImportSource) => void;
@@ -14,14 +39,16 @@ export function ClubImport({ preferences, existing, sources, onImport }: {
   const [distanceUnit, setDistanceUnit] = useState(preferences.distanceUnit), [speedUnit, setSpeedUnit] = useState(preferences.speedUnit);
   const [sampleType, setSampleType] = useState<ClubMetric['sampleType']>('Single shot');
   const [fileName, setFileName] = useState(''), [format, setFormat] = useState<ImportSource['format']>('csv');
+  const [imageUrl, setImageUrl] = useState(''), [tableDetected, setTableDetected] = useState(false);
   const [text, setText] = useState(''), [rawText, setRawText] = useState(''), [confidence, setConfidence] = useState<number>();
   const [busy, setBusy] = useState(false), [status, setStatus] = useState(''), [error, setError] = useState('');
   const [preview, setPreview] = useState<Preview | null>(null), [excluded, setExcluded] = useState<string[]>([]), [confirmed, setConfirmed] = useState(false);
-  const worker = useRef<Worker | null>(null), active = useRef(true);
+  const worker = useRef<Worker | null>(null), active = useRef(true), ocrPhase = useRef('');
   useEffect(() => { active.current = true; return () => { active.current = false; void worker.current?.terminate(); worker.current = null; }; }, []);
+  useEffect(() => () => { if (imageUrl) URL.revokeObjectURL(imageUrl); }, [imageUrl]);
   function invalidate() { setPreview(null); setConfirmed(false); }
   async function upload(file: File) {
-    invalidate(); setError(''); setText(''); setRawText(''); setConfidence(undefined); setFileName('');
+    invalidate(); setError(''); setText(''); setRawText(''); setConfidence(undefined); setFileName(''); setImageUrl(''); setTableDetected(false); ocrPhase.current = '';
     const extension = file.name.split('.').pop()?.toLowerCase();
     const image = ['png', 'jpg', 'jpeg', 'webp'].includes(extension ?? '');
     if (!image && !['csv', 'txt', 'json'].includes(extension ?? '')) { setError('Choose a PNG, JPG, WebP, CSV, TXT or JSON file. Convert HEIC photos to JPG first.'); return; }
@@ -34,17 +61,17 @@ export function ClubImport({ preferences, existing, sources, onImport }: {
         const pixels = bitmap.width * bitmap.height; bitmap.close();
         if (pixels > 20_000_000) throw new Error('Crop or resize this photo below 20 megapixels, then retry.');
         const { createWorker } = await import('tesseract.js');
-        const engine = await createWorker('eng', 1, { logger: progress => { if (active.current) setStatus(`${progress.status} · ${Math.round(progress.progress * 100)}%`); } });
+        const engine = await createWorker('eng', 1, { logger: progress => { if (active.current) setStatus(`${ocrPhase.current || progress.status} · ${Math.round(progress.progress * 100)}%`); } });
         worker.current = engine;
         if (!active.current) { await engine.terminate(); return; }
         await engine.setParameters({ preserve_interword_spaces: '1' });
-        const result = await engine.recognize(file);
-        extracted = result.data.text;
-        if (active.current) setConfidence(result.data.confidence);
+        const result = await readGolfImage(file, engine, message => { ocrPhase.current = message; if (active.current) setStatus(message); });
+        extracted = result.text;
+        if (active.current) { setConfidence(result.confidence); setRawText(result.rawText); setTableDetected(result.table); setImageUrl(URL.createObjectURL(file)); }
       } else extracted = await file.text();
       if (!extracted.trim()) throw new Error('No text found. Try a sharper, cropped screenshot or a structured export.');
       if (extracted.length > MAX_SOURCE_LENGTH) throw new Error('Too much text. Split this export into smaller files.');
-      if (active.current) { setText(extracted); setRawText(extracted); setFileName(file.name.slice(0, 200)); setFormat(image ? 'image' : extension as ImportSource['format']); }
+      if (active.current) { setText(extracted); if (!image) setRawText(extracted); setFileName(file.name.slice(0, 200)); setFormat(image ? 'image' : extension as ImportSource['format']); }
     } catch (cause) { if (active.current) setError(cause instanceof Error ? cause.message : 'Could not read this file. Try CSV or a clearer screenshot.'); }
     finally { await worker.current?.terminate(); worker.current = null; if (active.current) { setBusy(false); setStatus(''); } }
   }
@@ -58,6 +85,16 @@ export function ClubImport({ preferences, existing, sources, onImport }: {
     } catch (cause) { if (active.current) setError((cause as Error).message); }
     finally { if (active.current) setBusy(false); }
   }
+  function correctReading(id: string, field: MetricField, input: string) {
+    if (!preview) return false;
+    const value = input === '' ? undefined : distanceFields.includes(field) ? storeDistance(Number(input), distanceUnit) : isSpeed(field) ? storeSpeed(Number(input), speedUnit) : Number(input);
+    if (!clubMetricSchema.shape[field].safeParse(value).success) { setError(`${metricLabels[field]} is outside the supported range.`); return false; }
+    const reading = preview.readings.find(row => row.id === id);
+    const fixed = (preview.issues ?? []).filter(issue => issue.sourceRow === reading?.sourceRow && issue.field === field);
+    setPreview({ ...preview, readings: preview.readings.map(row => row.id === id ? { ...row, [field]: value } : row), issues: (preview.issues ?? []).filter(issue => !fixed.includes(issue)), warnings: preview.warnings.filter(warning => !fixed.some(issue => issue.message === warning)) });
+    setConfirmed(false); setError('');
+    return true;
+  }
   function add() {
     if (!preview || !confirmed) return;
     const readings = preview.readings.filter(reading => !excluded.includes(reading.id));
@@ -67,6 +104,7 @@ export function ClubImport({ preferences, existing, sources, onImport }: {
     if (sources.some(source => source.rawText === rawText)) { setError('This file has already been added to this session.'); return; }
     const id = crypto.randomUUID();
     onImport(readings.map(reading => ({ ...reading, importId: id })), { id, fileName, format, rawText, ...(rawText !== text ? { reviewedText: text } : {}), distanceUnit, speedUnit, importedAt: new Date().toISOString(), ...(confidence !== undefined ? { ocrConfidence: confidence } : {}) });
+    setImageUrl('');
     setOpen(false); setPreview(null); setText(''); setRawText(''); setFileName(''); setConfirmed(false); setError('');
   }
   return <div className="club-import">
@@ -84,14 +122,16 @@ export function ClubImport({ preferences, existing, sources, onImport }: {
       <p className="muted">Photos are read on your device. The first use downloads the OCR engine. Crop to the results and use a clear image. English labels supported.</p>
       {busy && <p role="status" className="import-status">{status || 'Preparing your review…'}</p>}
       {fileName && <>
+        {imageUrl && <details><summary>Compare with uploaded photo</summary><Image src={imageUrl} alt="Uploaded results for comparison with extracted measurements" width={1000} height={600} unoptimized style={{ width: '100%', height: 'auto' }}/></details>}
+        {tableDetected && <p className="import-warning">Simulator shot table detected. Check the file speed and distance units above: this table does not label them. The average footer is excluded. Correct flagged values below, or leave them out. The original OCR text remains available.</p>}
         <p><strong>{fileName}</strong>{confidence !== undefined && <span className="import-warning"> · OCR confidence {Math.round(confidence)}% — verify every value</span>}</p>
         <details><summary>Check or correct extracted text</summary><label className="field">Source text<textarea aria-label="Extracted source text" maxLength={MAX_SOURCE_LENGTH} value={text} disabled={busy} onChange={event => { setText(event.target.value); invalidate(); }}/></label><p className="muted">Supported: named CSV/JSON columns, spaced tables, or labels such as Carry: 180. Missing measurements stay empty.</p></details>
         <button className="button" type="button" disabled={busy || !club.trim() || !text.trim()} onClick={() => void review()}>Review measurements</button>
       </>}
       {preview && <>
         <h3>{preview.readings.length} readings found</h3>
-        {preview.warnings.length > 0 && <div role="alert" className="import-warning"><strong>Some values need attention.</strong><ul>{preview.warnings.slice(0, 12).map((warning, index) => <li key={index}>{warning}</li>)}</ul>{preview.warnings.length > 12 && <p>{preview.warnings.length - 12} more warnings. Check the source text.</p>}</div>}
-        <div className="import-preview">{preview.readings.map(reading => <label className="import-reading" key={reading.id}><input type="checkbox" checked={!excluded.includes(reading.id)} onChange={event => { setExcluded(previous => event.target.checked ? previous.filter(id => id !== reading.id) : [...previous, reading.id]); setConfirmed(false); }}/><span><strong>Row {reading.sourceRow} · {reading.club} · {reading.sampleType}</strong><span className="import-values">{metricFields.filter(field => reading[field] !== undefined).map(field => { const distance = field === 'carry' || field === 'total'; const speed = field === 'clubSpeed' || field === 'ballSpeed'; const value = distance ? displayDistance(reading[field], distanceUnit) : speed ? displaySpeed(reading[field], speedUnit) : reading[field]; return <span key={field}>{field.replace(/([A-Z])/g, ' $1')}: {rounded(value, field === 'smash' ? 2 : 1)}{distance ? ` ${distanceUnit}` : speed ? ` ${speedUnit === 'kmh' ? 'km/h' : 'mph'}` : field === 'spin' ? ' rpm' : field === 'launch' ? '°' : ''}</span>; })}</span></span></label>)}</div>
+        {preview.warnings.length > 0 && <div role="alert" className="import-warning"><strong>{preview.warnings.length} values or rows need review.</strong><p>Open the corrections on each reading below. Unreadable values stay empty.</p><details><summary>Show extraction warnings</summary><ul>{preview.warnings.slice(0, 12).map((warning, index) => <li key={index}>{warning}</li>)}</ul>{preview.warnings.length > 12 && <p>{preview.warnings.length - 12} more warnings. Check the source text.</p>}</details></div>}
+        <div className="import-preview">{preview.readings.map(reading => <ReadingReview key={reading.id} reading={reading} issues={(preview.issues ?? []).filter(issue => issue.sourceRow === reading.sourceRow)} included={!excluded.includes(reading.id)} distanceUnit={distanceUnit} speedUnit={speedUnit} onInclude={included => { setExcluded(previous => included ? previous.filter(id => id !== reading.id) : [...previous, reading.id]); setConfirmed(false); }} onCorrect={(field, value) => correctReading(reading.id, field, value)} onEditing={() => setConfirmed(false)}/>)}</div>
         <label className="import-confirm"><input type="checkbox" checked={confirmed} onChange={event => setConfirmed(event.target.checked)}/>I checked the values, units and sample types.</label>
         <button type="button" className="button primary" disabled={!confirmed || busy} onClick={add}>Add {preview.readings.length - excluded.length} readings to session</button>
         <p className="muted">You can edit the added measurements below. Save the session to keep them in your account.</p>

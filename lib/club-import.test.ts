@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { clubMetricSchema, importSourceSchema, parseClubImport } from './club-import.ts';
 const defaults = { club: '7-iron', distanceUnit: 'm' as const, speedUnit: 'mph' as const, sampleType: 'Single shot' as const };
 
@@ -63,4 +64,39 @@ test('shared persistence schemas retain import provenance and original / reviewe
   const source = { id: 'source', fileName: 'photo.png', format: 'image', rawText: 'Carry 22O', reviewedText: 'Carry 220', distanceUnit: 'm', speedUnit: 'mph', importedAt: new Date().toISOString(), ocrConfidence: 70 };
   assert.deepEqual(importSourceSchema.parse(source), source);
   assert.equal(clubMetricSchema.safeParse({ ...reading, carry: 700 }).success, false);
+});
+test('simulator table columns retain signed observations and map VLA separately from HLA', () => {
+  const result = parseClubImport({ ...defaults, format: 'image', text: 'Shot,Ball Speed,Total Carry,Total Distance,Back Spin,Side Spin,Offline,HLA,VLA,Peak Height,Dist to Pin\n1,110,120,125,6000,-350,-8,-2,15,25,200 mtrs\n2,115,130,140,-100,250,-4,-3,16,26,190 mtrs' });
+  assert.equal(result.readings.length, 2);
+  assert.equal(result.readings[0].carry, 120);
+  assert.equal(result.readings[0].total, 125);
+  assert.equal(result.readings[0].launch, 15);
+  assert.equal(result.readings[0].horizontalLaunch, -2);
+  assert.equal(result.readings[0].sideSpin, -350);
+  assert.equal(result.readings[1].spin, -100);
+  assert.equal(result.readings[0].apex, 25);
+  assert.equal(result.readings[0].distanceToPin, 200);
+  assert.equal(result.readings[0].clubSpeed, undefined);
+});
+test('low-confidence table cells are flagged and never included in analytics as numeric values', () => {
+  const result = parseClubImport({ ...defaults, format: 'image', text: 'Shot,Ball Speed,Total Carry,Back Spin\n1,110,CHECK 120,CHECK 600000' });
+  assert.equal(result.readings[0].ballSpeed, 110);
+  assert.equal(result.readings[0].carry, undefined);
+  assert.equal(result.readings[0].spin, undefined);
+  assert.equal(result.warnings.length, 2);
+  assert.equal(result.issues[0].field, 'carry');
+  assert.equal(result.issues[0].rawValue, 'CHECK 120');
+});
+test('a synthetic fixture for the photographed layout imports ten individual shots', () => {
+  const text = readFileSync(new URL('./fixtures/simulator-shot-table.csv', import.meta.url), 'utf8');
+  const result = parseClubImport({ ...defaults, format: 'csv', text });
+  assert.equal(result.readings.length, 10); assert.equal(result.warnings.length, 0);
+  assert(result.readings.every(reading => reading.sampleType === 'Single shot'));
+  assert.equal(result.readings[9].ballSpeed, 119);
+  assert.equal(result.readings[9].carry, 129);
+  assert.equal(result.readings[9].spin, -100);
+  const converted = parseClubImport({ ...defaults, distanceUnit: 'yd', speedUnit: 'kmh', format: 'csv', text });
+  assert.ok(Math.abs(converted.readings[0].ballSpeed! - 110 / 1.609344) < 1e-9);
+  assert.ok(Math.abs(converted.readings[0].offline! - -8 / 1.0936133) < 1e-9);
+  assert.equal(converted.readings[0].distanceToPin, 200); // Explicit mtrs wins.
 });
