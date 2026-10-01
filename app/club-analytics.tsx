@@ -3,6 +3,7 @@ import { useMemo, useState } from 'react';
 import { Activity, BarChart3, Gauge, Plus, Target } from 'lucide-react';
 import { displayDistance, displaySpeed, distanceLabel, speedLabel, type UserPreferences } from '@/lib/preferences';
 import type { ClubMetric } from '@/lib/club-import';
+import { practiceSmash } from '@/lib/practice-shots';
 export type { ClubMetric } from '@/lib/club-import';
 
 type SessionLike={id:string;date:string;title:string;club?:string;carry?:number;speed?:number;clubMetrics?:ClubMetric[]};
@@ -63,7 +64,7 @@ function EfficiencyChart({readings,pretty,distanceUnit,speedUnit}:{readings:Read
 
 export function ClubAnalytics({sessions,preferences,onLog,pretty}:Props){
  const metricOptions=getMetricOptions(preferences);
- const readings=useMemo<Reading[]>(()=>sessions.flatMap<Reading>(session=>session.clubMetrics?.length?session.clubMetrics.map<Reading>(metric=>({...metric,carry:displayDistance(metric.carry,preferences.distanceUnit),total:displayDistance(metric.total,preferences.distanceUnit),clubSpeed:displaySpeed(metric.clubSpeed,preferences.speedUnit),ballSpeed:displaySpeed(metric.ballSpeed,preferences.speedUnit),club:safeClub(metric.club),sessionId:session.id,date:session.date,sessionTitle:session.title})):session.club||session.carry!==undefined||session.speed!==undefined?[{id:`legacy-${session.id}`,club:safeClub(session.club),sampleType:'Legacy' as const,carry:displayDistance(session.carry,preferences.distanceUnit),clubSpeed:displaySpeed(session.speed,preferences.speedUnit),sessionId:session.id,date:session.date,sessionTitle:session.title}]:[]).sort((a,b)=>a.date.localeCompare(b.date)),[sessions,preferences.distanceUnit,preferences.speedUnit]);
+ const readings=useMemo<Reading[]>(()=>sessions.flatMap<Reading>(session=>session.clubMetrics?.length?session.clubMetrics.map<Reading>(metric=>({...metric,smash:practiceSmash(metric),carry:displayDistance(metric.carry,preferences.distanceUnit),total:displayDistance(metric.total,preferences.distanceUnit),clubSpeed:displaySpeed(metric.clubSpeed,preferences.speedUnit),ballSpeed:displaySpeed(metric.ballSpeed,preferences.speedUnit),club:safeClub(metric.club),sessionId:session.id,date:session.date,sessionTitle:session.title})):session.club||session.carry!==undefined||session.speed!==undefined?[{id:`legacy-${session.id}`,club:safeClub(session.club),sampleType:'Legacy' as const,carry:displayDistance(session.carry,preferences.distanceUnit),clubSpeed:displaySpeed(session.speed,preferences.speedUnit),sessionId:session.id,date:session.date,sessionTitle:session.title}]:[]).sort((a,b)=>a.date.localeCompare(b.date)),[sessions,preferences.distanceUnit,preferences.speedUnit]);
  const clubs=useMemo(()=>[...new Set(readings.map(reading=>reading.club))].sort((a,b)=>a.localeCompare(b)),[readings]);
  const [selectedClub,setClub]=useState(''),[metric,setMetric]=useState<MetricKey>('carry'),[sampleType,setSampleType]=useState('All types');
  const club=clubs.includes(selectedClub)?selectedClub:clubs.includes('Driver')?'Driver':clubs[0]||'';
