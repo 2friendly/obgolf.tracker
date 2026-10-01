@@ -31,11 +31,11 @@ function ReadingReview({ reading, issues, included, distanceUnit, speedUnit, onI
     })}</div></details>
   </div></article>;
 }
-export function ClubImport({ preferences, existing, sources, onImport }: {
-  preferences: UserPreferences; existing: ClubMetric[]; sources: ImportSource[];
+export function ClubImport({ preferences, existing, sources, onImport, initiallyOpen = false, onPendingChange }: {
+  onPendingChange?: (pending: boolean) => void; initiallyOpen?: boolean; preferences: UserPreferences; existing: ClubMetric[]; sources: ImportSource[];
   onImport: (readings: ClubMetric[], source: ImportSource) => void;
 }) {
-  const [open, setOpen] = useState(false), [club, setClub] = useState('Driver');
+  const [open, setOpen] = useState(initiallyOpen), [club, setClub] = useState('Driver');
   const [distanceUnit, setDistanceUnit] = useState(preferences.distanceUnit), [speedUnit, setSpeedUnit] = useState(preferences.speedUnit);
   const [sampleType, setSampleType] = useState<ClubMetric['sampleType']>('Single shot');
   const [fileName, setFileName] = useState(''), [format, setFormat] = useState<ImportSource['format']>('csv');
@@ -53,7 +53,7 @@ export function ClubImport({ preferences, existing, sources, onImport }: {
     const image = ['png', 'jpg', 'jpeg', 'webp'].includes(extension ?? '');
     if (!image && !['csv', 'txt', 'json'].includes(extension ?? '')) { setError('Choose a PNG, JPG, WebP, CSV, TXT or JSON file. Convert HEIC photos to JPG first.'); return; }
     if (file.size > (image ? 10_000_000 : MAX_SOURCE_LENGTH)) { setError(image ? 'Use a photo smaller than 10 MB.' : 'Use a text file smaller than 150 KB.'); return; }
-    setBusy(true); setStatus(image ? 'Loading photo reader…' : 'Reading file…');
+    onPendingChange?.(true); setBusy(true); setStatus(image ? 'Loading photo reader…' : 'Reading file…');
     try {
       let extracted: string;
       if (image) {
@@ -105,7 +105,7 @@ export function ClubImport({ preferences, existing, sources, onImport }: {
     const id = crypto.randomUUID();
     onImport(readings.map(reading => ({ ...reading, importId: id })), { id, fileName, format, rawText, ...(rawText !== text ? { reviewedText: text } : {}), distanceUnit, speedUnit, importedAt: new Date().toISOString(), ...(confidence !== undefined ? { ocrConfidence: confidence } : {}) });
     setImageUrl('');
-    setOpen(false); setPreview(null); setText(''); setRawText(''); setFileName(''); setConfirmed(false); setError('');
+    onPendingChange?.(false); setOpen(false); setPreview(null); setText(''); setRawText(''); setFileName(''); setConfirmed(false); setError('');
   }
   return <div className="club-import">
     <button type="button" className="button" aria-expanded={open} onClick={() => setOpen(!open)}><Upload size={18}/>Import photo or file</button>
@@ -125,7 +125,7 @@ export function ClubImport({ preferences, existing, sources, onImport }: {
         {imageUrl && <details><summary>Compare with uploaded photo</summary><Image src={imageUrl} alt="Uploaded results for comparison with extracted measurements" width={1000} height={600} unoptimized style={{ width: '100%', height: 'auto' }}/></details>}
         {imageLayout !== 'text' && <p className="import-warning">{imageLayout === 'simulator' ? 'Simulator shot table detected. Check the file speed and distance units above: this table does not label them. The average footer is excluded.' : 'Shot table detected from column positions. Check the headers and units; unlabelled measurements use your selected file units. Recognised summary rows are excluded. Unsupported columns are kept in the source text.'} Correct flagged values below, or leave them out. The original OCR text remains available.</p>}
         <p><strong>{fileName}</strong>{confidence !== undefined && <span className="import-warning"> · OCR confidence {Math.round(confidence)}% — verify every value</span>}</p>
-        <details><summary>Check or correct extracted text</summary><label className="field">Source text<textarea aria-label="Extracted source text" maxLength={MAX_SOURCE_LENGTH} value={text} disabled={busy} onChange={event => { setText(event.target.value); invalidate(); }}/></label><p className="muted">Supported: named CSV/JSON columns, spaced tables, or labels such as Carry: 180. Missing measurements stay empty.</p></details>
+        <details><summary>Check or correct extracted text</summary><label className="field">Source text<textarea aria-label="Extracted source text" maxLength={MAX_SOURCE_LENGTH} value={text} disabled={busy} onChange={event => { setText(event.target.value); onPendingChange?.(!!event.target.value); invalidate(); }}/></label><p className="muted">Supported: named CSV/JSON columns, spaced tables, or labels such as Carry: 180. Missing measurements stay empty.</p></details>
         <button className="button" type="button" disabled={busy || !club.trim() || !text.trim()} onClick={() => void review()}>Review measurements</button>
       </>}
       {preview && <>

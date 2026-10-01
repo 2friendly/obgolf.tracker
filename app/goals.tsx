@@ -2,10 +2,11 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Plus, Pencil, Target } from 'lucide-react';
+import { Plus, Pencil, Target, Ellipsis } from 'lucide-react';
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogContent, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogAction, AlertDialogCancel } from '@/components/ui/alert-dialog';
 import { goalLabels, goalSchema, goalTypes, goalValue, type Goal, type GoalInput } from '@/lib/goals';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Progress } from '@/components/ui/progress';
 import type { DashboardInsights } from '@/lib/goal-recommendations';
 import type { GoalProgress } from '@/lib/goal-progress';
@@ -131,7 +132,7 @@ export function Goals({ state, distanceUnit, pretty }: { state: GoalsState; dist
   const visible = goals.filter(goal => goal.status === filter).sort((a, b) => Number(b.is_primary) - Number(a.is_primary));
   return <div className="goals-surface">
     <div className="heading"><div><h2>Your goals</h2><p className="muted">Choose what you want to improve. Set a primary goal to keep it in focus.</p></div><button className="button primary" disabled={loading || busy} onClick={add}><Plus size={16}/>Add goal</button></div>
-    <div className="toolbar" aria-label="Filter goals">{(['active', 'completed', 'archived'] as const).map(status => <button className={'button ' + (filter === status ? 'primary' : '')} aria-pressed={filter === status} key={status} onClick={() => setFilter(status)}>{status[0].toUpperCase() + status.slice(1)} ({goals.filter(goal => goal.status === status).length})</button>)}</div>
+    <div className="toolbar" aria-label="Filter goals">{(['active', 'completed', 'archived'] as const).map(status => <button className={'button ' + (filter === status ? 'selected' : '')} aria-pressed={filter === status} key={status} onClick={() => setFilter(status)}>{status[0].toUpperCase() + status.slice(1)} ({goals.filter(goal => goal.status === status).length})</button>)}</div>
     {error && !draft && <div className="error" role="alert">{error} <button className="button small" disabled={busy || loading} onClick={() => void reload()}>Reload goals</button></div>}
     {loading ? <p className="loading muted">Loading your goals…</p> : <div className="ledger">{visible.map(goal => <article className="panel goalcard" key={goal.id}>
       <div className="sectionhead"><span className="badge">{goal.is_primary ? 'Primary · ' : ''}{goalLabels[goal.type]}</span><button className="goal-edit iconbtn" disabled={busy} aria-label={'Edit ' + goal.title} onClick={() => edit(goal)}><Pencil size={18}/></button></div>
@@ -140,12 +141,11 @@ export function Goals({ state, distanceUnit, pretty }: { state: GoalsState; dist
       <GoalProgressDetails goal={goal} progress={state.progress[goal.id]} loading={state.progressLoading} error={state.progressError} onRetry={state.invalidateProgress}/>
       {goal.target_date && <p className="muted">Target date: {pretty(goal.target_date)}</p>}
       <div className="toolbar goal-actions">
-        {goal.status === 'active' ? <>
-          <button className="button" disabled={busy} onClick={() => void request('PUT', { ...goal, is_primary: !goal.is_primary })}>{goal.is_primary ? 'Make secondary' : 'Make primary'}</button>
-          <button className="button" disabled={busy} onClick={() => void request('PUT', { ...goal, status: 'completed', is_primary: false })}>Complete</button>
-          <button className="button" disabled={busy} onClick={() => void request('PUT', { ...goal, status: 'archived', is_primary: false })}>Archive</button>
-        </> : <button className="button" disabled={busy} onClick={() => void request('PUT', { ...goal, status: 'active', is_primary: false })}>Reactivate</button>}
-        <button className="button danger" disabled={busy} onClick={() => { setError(''); setRemoving(goal); }}>Delete</button>
+        <button className="button" disabled={busy} onClick={() => void request('PUT', { ...goal, status: goal.status === 'active' ? 'completed' : 'active', is_primary: false })}>{goal.status === 'active' ? 'Mark complete' : 'Reactivate'}</button>
+        <DropdownMenu><DropdownMenuTrigger className="button goal-more" disabled={busy} aria-label={`More options for ${goal.title}`}><Ellipsis size={20}/></DropdownMenuTrigger><DropdownMenuContent align="end" className="goal-options">
+          {goal.status==='active'&&<><DropdownMenuItem onSelect={()=>void request('PUT',{...goal,is_primary:!goal.is_primary})}>{goal.is_primary?'Make secondary':'Make primary'}</DropdownMenuItem><DropdownMenuItem onSelect={()=>void request('PUT',{...goal,status:'archived',is_primary:false})}>Archive goal</DropdownMenuItem><DropdownMenuSeparator/></>}
+          <DropdownMenuItem variant="destructive" onSelect={()=>{setError('');setRemoving(goal);}}>Delete goal</DropdownMenuItem>
+        </DropdownMenuContent></DropdownMenu>
       </div>
     </article>)}</div>}
     {!loading && !error && !visible.length && <section className="panel empty"><Target size={28}/><h3>{filter === 'active' ? 'Give your progress a destination' : `No ${filter} goals`}</h3><p className="muted">{filter === 'active' ? 'Create a goal for scoring, course performance, club carry or your own measurable target.' : 'Your goals will appear here when you change their status.'}</p>{filter === 'active' && <button className="button" onClick={add}>Create a goal</button>}</section>}

@@ -2,7 +2,7 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Golf Progress | Road to 90",
+  title: "Golf Progress | Your golf improvement",
   description: "Your practice, rounds, next steps and spending, in one place.",
   icons: {
     icon: "/favicon.svg",
