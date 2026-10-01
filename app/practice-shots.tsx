@@ -1,80 +1,112 @@
 'use client';
-import { useRef, useState, type CSSProperties, type KeyboardEvent } from 'react';
-import { Plus, Trash2 } from 'lucide-react';
-import { MAX_READINGS, clubMetricSchema, distanceFields, metricFields, type ClubMetric, type MetricField } from '@/lib/club-import';
-import { practiceSmash, shotMetricLabels, shotDisplayValue, shotStoredValue, shotHasData, isShotSpeed } from '@/lib/practice-shots';
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { Check, Trash2 } from 'lucide-react';
+import { MAX_READINGS, clubMetricSchema, distanceFields, type ClubMetric } from '@/lib/club-import';
+import { defaultShotSettings, parseShotSettings, shotColumns, shotPresets, shotMetricFields, practiceSmash, shotMetricLabels, shotDisplayValue, shotStoredValue, shotHasData, isShotSpeed, type ShotColumn, type ShotPreset, type ShotEntrySettings } from '@/lib/practice-shots';
 import { distanceLabel, speedLabel, rounded, type UserPreferences } from '@/lib/preferences';
 
-type Column = MetricField | 'notes';
-type Props = { readings: ClubMetric[]; preferences: UserPreferences; onUpsert: (shot: ClubMetric) => void; onRemove: (id: string) => void };
-export function PracticeShots({ readings, preferences, onUpsert, onRemove }: Props) {
+type Props = { readings: ClubMetric[]; preferences: UserPreferences; preferenceKey: string; onUpsert: (shot: ClubMetric) => void; onRemove: (id: string) => void };
+const shortLabels: Partial<Record<ShotColumn, string>> = { total: 'Total', clubSpeed: 'Club speed', ballSpeed: 'Ball speed', launch: 'Launch', horizontalLaunch: 'H. launch', distanceToPin: 'To pin', apex: 'Apex', attackAngle: 'Attack', faceToPath: 'Face/path' };
+export function PracticeShots({ readings, preferences, preferenceKey, onUpsert, onRemove }: Props) {
   const shots = readings.filter(reading => reading.sampleType === 'Single shot');
-  // Empty entry rows are UI-only. The first observation commits a real shot to
-  // the session draft; editing an existing shot preserves its ID/provenance.
-  const [entryRows, setEntryRows] = useState<ClubMetric[]>([]);
   const [selectedClub, setSelectedClub] = useState(shots[0]?.club ?? 'Driver');
-  const [newClub, setNewClub] = useState('Driver');
-  const [columns, setColumns] = useState<Column[]>(() => [...new Set<Column>(['carry', 'clubSpeed', 'ballSpeed', 'smash', ...metricFields.filter(field => shots.some(shot => shot[field] !== undefined)), ...(shots.some(shot => shot.notes) ? ['notes' as const] : [])])]);
+  const [newClub, setNewClub] = useState(shots[0]?.club ?? 'Driver');
+  const [extraClubs, setExtraClubs] = useState<string[]>([]);
+  const [blankIds, setBlankIds] = useState<Record<string, string>>({});
+  const [settings, setSettings] = useState<ShotEntrySettings>(defaultShotSettings);
+  const [ready, setReady] = useState(false);
   const root = useRef<HTMLDivElement>(null);
-  const rows = [...shots.filter(shot => !entryRows.some(row => row.id === shot.id)), ...entryRows.map(row => shots.find(shot => shot.id === row.id) ?? row)];
-  const clubs = [...new Set(rows.map(row => row.club))];
-  const club = clubs.includes(selectedClub) ? selectedClub : clubs[0] ?? selectedClub;
-  const group = rows.filter(row => row.club === club);
-  const count = readings.length + entryRows.filter(row => !shots.some(shot => shot.id === row.id)).length;
-  const unit = (field: Column) => field === 'notes' ? '' : distanceFields.includes(field) ? distanceLabel(preferences.distanceUnit) : isShotSpeed(field) ? speedLabel(preferences.speedUnit) : ['launch', 'horizontalLaunch'].includes(field) ? '°' : ['spin', 'sideSpin'].includes(field) ? 'rpm' : '';
-  const label = (field: Column) => field === 'notes' ? 'Notes' : shotMetricLabels[field];
-  function focusRow(id: string) {
-    requestAnimationFrame(() => Array.from(root.current?.querySelectorAll<HTMLInputElement>('input[data-shot-cell]') ?? []).find(input => input.dataset.shotId === id)?.focus());
+  const storageKey = `golf-progress:shot-entry:${encodeURIComponent(preferenceKey)}`;
+  useEffect(() => {
+    // Imported shots arriving in an initially empty editor should be visible.
+    if (!shots.length || shots.some(shot => shot.club === selectedClub) || extraClubs.includes(selectedClub)) return;
+    let active = true;
+    const name = shots[0].club;
+    queueMicrotask(() => { if (active) { setSelectedClub(name); setNewClub(name); } });
+    return () => { active = false; };
+  }, [shots, selectedClub, extraClubs]);
+  useEffect(() => {
+    let active = true;
+    let restored = defaultShotSettings;
+    try { restored = parseShotSettings(localStorage.getItem(storageKey)); } catch { /* Entry works when browser storage is unavailable. */ }
+    queueMicrotask(() => { if (active) { setSettings(restored); setReady(true); } });
+    return () => { active = false; };
+  }, [storageKey]);
+  function changeSettings(next: ShotEntrySettings) {
+    setSettings(next);
+    try { localStorage.setItem(storageKey, JSON.stringify(next)); } catch { /* Optional device preference. */ }
   }
-  function addRow(targetClub = club) {
-    if (count >= MAX_READINGS || !targetClub.trim()) return;
-    const row: ClubMetric = { id: crypto.randomUUID(), club: targetClub.trim(), sampleType: 'Single shot' };
-    setSelectedClub(row.club); setEntryRows(current => [...current, row]); focusRow(row.id);
+  const columns = shotColumns(settings);
+  const clubs = [...new Set([selectedClub, ...shots.map(shot => shot.club), ...extraClubs])];
+  const group = shots.filter(row => row.club === selectedClub);
+  // A blank row is never saved. Its ID stays unchanged when its first value
+  // commits the shot, so the focused cell and partially typed decimal survive.
+  const tail: ClubMetric = { id: blankIds[selectedClub] ?? '', club: selectedClub, sampleType: 'Single shot' };
+  const displayed = tail.id && !group.some(row => row.id === tail.id) && readings.length < MAX_READINGS ? [...group, tail] : group;
+  useEffect(() => {
+    if (blankIds[selectedClub] && !shots.some(shot => shot.id === blankIds[selectedClub])) return;
+    let active = true;
+    const id = crypto.randomUUID();
+    queueMicrotask(() => { if (active) setBlankIds(current => ({ ...current, [selectedClub]: id })); });
+    return () => { active = false; };
+  }, [selectedClub, blankIds, shots]);
+  const unit = (field: ShotColumn) => field === 'notes' ? '' : distanceFields.includes(field) ? distanceLabel(preferences.distanceUnit) : isShotSpeed(field) ? speedLabel(preferences.speedUnit) : ['spin', 'sideSpin'].includes(field) ? 'rpm' : field === 'smash' ? '' : '°';
+  const label = (field: ShotColumn) => field === 'notes' ? 'Notes' : shotMetricLabels[field];
+  function selectClub() {
+    const name = newClub.trim();
+    if (!name) return;
+    setSelectedClub(name); setExtraClubs(current => current.includes(name) ? current : [...current, name]);
   }
-  function update(row: ClubMetric, field: Column, text: string) {
-    if (readings.length >= MAX_READINGS && !shots.some(shot => shot.id === row.id)) return;
+  function update(row: ClubMetric, field: ShotColumn, text: string) {
     const next = { ...row, [field]: field === 'notes' ? text : shotStoredValue(field, text, preferences) };
+    if (readings.length >= MAX_READINGS && !shots.some(shot => shot.id === row.id)) return;
     if (shots.some(shot => shot.id === row.id) || shotHasData(next)) onUpsert(next);
   }
-  function navigate(event: KeyboardEvent<HTMLInputElement>, row: ClubMetric) {
-    if (event.nativeEvent.isComposing || (event.key !== 'Enter' && event.key !== 'Tab') || event.shiftKey || event.altKey || event.ctrlKey || event.metaKey) return;
-    const cells = Array.from(root.current?.querySelectorAll<HTMLInputElement>('input[data-shot-cell]') ?? []);
+  function navigate(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.nativeEvent.isComposing || !['Enter', 'Tab'].includes(event.key) || event.altKey || event.ctrlKey || event.metaKey) return;
+    const cells = Array.from(root.current?.querySelectorAll<HTMLInputElement>('input[data-shot-cell]:not(:disabled)') ?? []);
     const index = cells.indexOf(event.currentTarget);
-    if (cells[index + 1]) { event.preventDefault(); cells[index + 1].focus(); }
-    else if (index === cells.length - 1 && shotHasData(row) && count < MAX_READINGS) { event.preventDefault(); addRow(); }
-    else if (event.key === 'Enter') { event.preventDefault(); } // Never submit the session while entering shots.
+    const next = cells[index + (event.shiftKey ? -1 : 1)];
+    if (next) { event.preventDefault(); next.focus(); }
+    else if (event.key === 'Enter') event.preventDefault();
   }
-  const grid = { '--shot-columns': columns.length } as CSSProperties;
+  const hiddenStored = shotMetricFields.filter(field => !columns.includes(field) && group.some(row => row[field] !== undefined)).length;
   return <div className="practice-shots" ref={root}>
-    <div className="shot-club-start"><label className="field">Club for shots<input list="golf-clubs" maxLength={80} value={newClub} onChange={event => setNewClub(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); addRow(newClub); } }}/></label><button className="button" type="button" disabled={!newClub.trim() || count >= MAX_READINGS} onClick={() => addRow(newClub)}><Plus size={17}/>Start shots</button></div>
-    {!!clubs.length && <div className="shot-club-switch" aria-label="Shot clubs">{clubs.map(name => <button key={name} className={`button ${club === name ? 'primary' : ''}`} type="button" aria-pressed={club === name} onClick={() => setSelectedClub(name)}>{name} <span className="muted">{rows.filter(row => row.club === name && shotHasData(row)).length}</span></button>)}</div>}
-    <details className="shot-column-picker"><summary>Choose columns · {columns.length} selected</summary><p className="muted">Hidden columns keep their values. Every measurement is optional.</p><div>{([...metricFields, 'notes'] as Column[]).map(field => <label key={field}><input type="checkbox" checked={columns.includes(field)} disabled={columns.length === 1 && columns.includes(field)} onChange={event => setColumns(current => event.target.checked ? [...current, field] : current.filter(column => column !== field))}/>{label(field)}</label>)}</div></details>
-    <p className="muted shot-entry-help">Tab or Enter moves to the next cell and adds a row at the end. Smash is calculated from speeds unless entered. Save the session when finished; empty rows are skipped.</p>
-    {!!group.length && <>
-      <div className="shot-table-scroll"><div className="shot-table" style={grid}>
-        <div className="shot-table-head" aria-hidden="true"><span>Shot</span>{columns.map(field => <span key={field}>{label(field)} {unit(field)}</span>)}<span/></div>
-        {group.map((row, index) => <div className="shot-entry-row" key={row.id}>
-          <strong className="shot-number">{index + 1}<span>Shot {index + 1} · {club}</span></strong>
+    <div className="shot-entry-toolbar">
+      <label className="field shot-club-label">Club<input aria-label="Club for shots" list="golf-clubs" maxLength={80} value={newClub} onChange={event => setNewClub(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); selectClub(); } }}/></label>
+      <button className="iconbtn shot-use-club" title="Use club" aria-label="Use club" type="button" disabled={!newClub.trim()} onClick={selectClub}><Check size={18}/></button>
+      <label className="field shot-preset-label">Metrics<select aria-label="Shot metric preset" disabled={!ready} value={settings.preset} onChange={event => changeSettings({ ...settings, preset: event.target.value as ShotPreset })}>{['Basic', 'Standard', 'Advanced', 'Custom'].map(preset => <option key={preset}>{preset}</option>)}</select></label>
+    </div>
+    {clubs.length > 1 && <div className="shot-club-switch" aria-label="Shot clubs">{clubs.map(name => <button key={name} className={`button small ${selectedClub === name ? 'primary' : ''}`} type="button" aria-pressed={selectedClub === name} onClick={() => { setSelectedClub(name); setNewClub(name); }}>{name} · {shots.filter(row => row.club === name).length}</button>)}</div>}
+    <details className="shot-column-picker">
+      <summary>Customize columns{hiddenStored ? ` · ${hiddenStored} hidden metrics retained` : ''}</summary>
+      <div>{([...shotMetricFields, 'notes'] as ShotColumn[]).map(field => <label key={field}><input type="checkbox" checked={columns.includes(field)} disabled={!ready || (columns.length === 1 && columns.includes(field))} onChange={event => changeSettings({ preset: 'Custom', custom: event.target.checked ? [...columns, field] : columns.filter(column => column !== field) })}/>{label(field)}</label>)}</div>
+      {settings.preset !== 'Custom' && <button className="button small" type="button" onClick={() => changeSettings({ preset: 'Custom', custom: [...shotPresets[settings.preset as keyof typeof shotPresets]] })}>Use these as custom columns</button>}
+    </details>
+    <div className="shot-grid-caption"><strong>{selectedClub} · {group.length} shots</strong><span>Tab / Enter: next cell <span className="shot-swipe-hint">· Swipe for columns</span></span></div>
+    <div className="shot-table-scroll" role="region" aria-label={`${selectedClub} shot entry table`} tabIndex={0}>
+      <table className="shot-table"><thead><tr><th scope="col">#</th>{columns.map(field => <th scope="col" key={field} title={label(field)}>{shortLabels[field] ?? label(field)}{unit(field) && <small>{unit(field)}</small>}</th>)}<th scope="col"><span className="sr-only">Actions</span></th></tr></thead>
+        <tbody>{displayed.map((row, index) => <tr className={`shot-entry-row ${row.id === tail.id ? 'shot-next-row' : ''}`} key={row.id}>
+          <th scope="row" className="shot-number" title={row.id === tail.id ? 'Next shot' : `Shot ${index + 1}`}>{row.id === tail.id ? '+' : index + 1}</th>
           {columns.map(field => {
             const value = field === 'notes' ? row.notes : rounded(shotDisplayValue(field, row[field], preferences), 4);
             const derived = field === 'smash' && row.smash === undefined ? practiceSmash(row) : undefined;
             const schema = field === 'notes' ? undefined : clubMetricSchema.shape[field];
             const min = schema?.unwrap().minValue ?? undefined, max = schema?.unwrap().maxValue ?? undefined;
-            return <label className="field shot-cell" key={`${field}-${preferences.distanceUnit}-${preferences.speedUnit}`}><span>{label(field)} {unit(field)}</span><input
-              data-shot-cell data-shot-id={row.id} aria-label={`${club} shot ${index + 1} ${label(field)}`}
-              disabled={readings.length >= MAX_READINGS && !shots.some(shot => shot.id === row.id)}
+            return <td className="shot-cell" key={`${field}-${preferences.distanceUnit}-${preferences.speedUnit}`}><input
+              data-shot-cell data-shot-id={row.id} aria-label={`${selectedClub} shot ${index + 1} ${label(field)}`} title={derived === undefined ? label(field) : `Calculated smash: ${rounded(derived, 2)}. Enter a value to override.`}
               type={field === 'notes' ? 'text' : 'number'} inputMode={field === 'notes' ? 'text' : 'decimal'} step="any"
               min={field === 'notes' ? undefined : shotDisplayValue(field, min, preferences)} max={field === 'notes' ? undefined : shotDisplayValue(field, max, preferences)} maxLength={field === 'notes' ? 500 : undefined}
-              defaultValue={value ?? ''} placeholder={derived === undefined ? '—' : `${rounded(derived, 2)} auto`}
-              onChange={event => update(row, field, event.target.value)} onKeyDown={event => navigate(event, row)}
-            />{derived !== undefined && <small className="shot-derived">Auto {rounded(derived, 2)}</small>}</label>;
+              defaultValue={value ?? ''} placeholder={derived === undefined ? '—' : `${rounded(derived, 2)}`}
+              onFocus={event => event.currentTarget.scrollIntoView({ block: 'nearest', inline: 'nearest' })}
+              onChange={event => update(row, field, event.target.value)} onKeyDown={navigate}
+            /></td>;
           })}
-          <button className="iconbtn shot-remove" type="button" aria-label={`Remove ${club} shot ${index + 1}`} onClick={() => { setEntryRows(current => current.filter(entry => entry.id !== row.id)); onRemove(row.id); }}><Trash2 size={17}/></button>
-        </div>)}
-      </div></div>
-      <button type="button" className="button shot-add" disabled={count >= MAX_READINGS} onClick={() => addRow()}><Plus size={17}/>Add {club} shot</button>
-    </>}
-    {!group.length && <p className="muted">Choose a club and start shots to enter a set of individual readings.</p>}
-    {count >= MAX_READINGS && <p role="status" className="import-warning">Session limit reached ({MAX_READINGS} readings). Start another session for more shots.</p>}
+          <td className="shot-action">{row.id !== tail.id && <button className="iconbtn shot-remove" type="button" aria-label={`Remove ${selectedClub} shot ${index + 1}`} onClick={() => onRemove(row.id)}><Trash2 size={15}/></button>}</td>
+        </tr>)}</tbody>
+      </table>
+    </div>
+    <p className="muted shot-entry-help">Smash calculates from speeds unless entered. Empty rows are skipped; save the session when finished.</p>
+    {readings.length >= MAX_READINGS && <p role="status" className="import-warning">Session limit reached ({MAX_READINGS} readings).</p>}
   </div>;
 }

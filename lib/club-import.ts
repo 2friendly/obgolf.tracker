@@ -15,6 +15,10 @@ export const clubMetricSchema = z.object({
   horizontalLaunch: z.number().min(-90).max(90).optional(),
   apex: z.number().min(0).max(300).optional(),
   distanceToPin: z.number().min(0).max(2000).optional(),
+  attackAngle: z.number().min(-90).max(90).optional(),
+  clubPath: z.number().min(-90).max(90).optional(),
+  faceAngle: z.number().min(-90).max(90).optional(),
+  faceToPath: z.number().min(-180).max(180).optional(),
   total: z.number().min(0).max(600).optional(), notes: z.string().max(500).optional(),
   importId: z.string().max(100).optional(), sourceRow: z.number().int().positive().optional(),
 });
