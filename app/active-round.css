@@ -10,3 +10,5 @@
 @media(max-width:620px){.review-holes>button{grid-template-columns:34px repeat(5,minmax(38px,1fr)) 18px}}
 .active-round-modal{translate:none!important}
 .hole-progress button{flex-basis:44px;width:44px;height:44px}.setup-hole select,.setup-hole input{height:44px}.shot-results button{min-height:44px}
+
+.round-card-actions{display:flex;margin-top:16px}.round-card-actions .button{min-height:44px}
