@@ -28,3 +28,51 @@
 .progress-finding>ul{padding-left:20px;margin:16px 0;line-height:1.65;font-size:14px;color:var(--muted-foreground)}.progress-finding>ul>li+li{margin-top:12px}.progress-finding>ul strong{color:var(--improvement)}.progress-finding>ul>li{overflow-wrap:anywhere}
 @media(min-width:1100px){.progress-dashboard{grid-template-columns:1fr 1fr;gap:40px}.progress-goal{border-bottom:0;padding-right:32px;border-right:1px solid var(--border)}}
 @media(max-width:620px){.progress-dashboard{gap:24px}.progress-goal{padding-bottom:18px}.progress-goal .sectionhead .button{min-height:44px}.progress-current{align-items:flex-start;gap:10px}.progress-current strong{font-size:26px}.trend-status{max-width:120px;white-space:normal;text-align:center;font-size:12px}.focus-title{font-size:22px}.progress-journey{grid-template-columns:1fr;gap:14px}.finding-title{display:block}.finding-title .badge{margin-top:8px}.focus-action{gap:12px}.progress-disclosure>summary{font-size:13px}}
+
+/* Home uses distinct surfaces to separate destination, next step, and history. */
+.shell .progress-dashboard{gap:18px;align-items:start}
+.shell .progress-goal{
+ --foreground:#20352a;--muted-foreground:#506052;--border:#cbd1bd;--muted:#dce4cf;
+ --primary:#34542d;--improvement:#2f6541;--caution:#74531c;
+ background:#e7ecd9;color:var(--foreground);border:1px solid #e7ecd9;border-radius:12px;padding:22px;
+}
+.home-section-label{display:block;margin-bottom:8px;font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--muted-foreground)}
+.shell .progress-goal .sectionhead{align-items:flex-start;margin-bottom:16px}
+.shell .progress-goal .sectionhead h2{font-size:28px;letter-spacing:-.7px}
+.shell .progress-goal .button{background:transparent;color:var(--foreground);border-color:#abb79f;min-height:44px}
+.shell .progress-goal .button:hover{background:#d7dfc9}
+.shell .progress-goal .button:focus-visible{outline-color:#34542d}
+.shell .progress-goal .button.primary{background:#294731;border-color:#294731;color:#eff3e6}
+.shell .progress-goal .muted,.shell .progress-goal .progress-target{color:var(--muted-foreground)}
+.shell .progress-goal .trend-status{background:#d4dfc6;color:#405039}
+.shell .progress-goal .trend-status.improving{background:#d1e3ca;color:#285a36}
+.shell .progress-goal .trend-status.worsening{background:#e7dbbc;color:#674816}
+.shell .progress-goal .progress-target{margin:0 0 20px}
+.shell .progress-goal .progress-to-target .bar{background:#c6d0b7!important;height:6px!important}
+.shell .progress-goal .bar>div{background:#476d38!important}
+.shell .progress-goal .goal-detail{border-top:1px solid var(--border);margin-top:16px}
+.shell .progress-goal .goal-detail>summary{padding-top:4px;min-height:44px}
+.shell .progress-patterns{background:#1d2e24;border:1px solid #4a6250;border-radius:12px;padding:22px;min-width:0}
+.shell .progress-patterns>.sectionhead{padding-bottom:14px;margin-bottom:18px;border-bottom:1px solid #425745}
+.shell .progress-patterns>.sectionhead h2{font-size:14px;font-weight:600;letter-spacing:.02em;color:#c8f763}
+.shell .progress-patterns .focus-title{font-size:25px;line-height:1.25;letter-spacing:-.5px}
+.shell .progress-patterns .focus-observation{margin:14px 0 20px;color:#c0cebf}
+.shell .progress-patterns .progress-disclosure{border-color:#425745}
+.shell .progress-patterns .progress-disclosure>summary{color:#c0cebf;line-height:1.4;padding-block:10px}
+.shell .progress-patterns .focus-action{gap:12px}
+.shell .progress-patterns .evidence-status{color:#c0cebf}
+.shell .home-capture{border:0;padding:0;margin-top:20px;gap:12px}
+.shell .home-capture .button{min-height:54px;background:#273c2c;border-color:#61735b}
+.shell .home-capture .button:hover{background:#354c36}
+.shell .home-recent{margin-top:28px;padding:18px 20px 4px;background:#16231b;border:1px solid #3b4d3e;border-radius:10px}
+.shell .home-recent .sectionhead{margin-bottom:8px}
+.shell .home-recent .activity-row{border-top:1px solid #3b4d3e;border-bottom:0;padding:16px 0}
+.shell .dashboard-history{margin-top:24px}
+@media(min-width:1100px){.shell .progress-dashboard{grid-template-columns:1fr 1fr;gap:22px;align-items:stretch}.shell .progress-goal,.shell .progress-patterns{padding:26px}}
+@media(max-width:620px){
+ .shell .progress-goal,.shell .progress-patterns{padding:18px}
+ .shell .progress-goal .sectionhead h2{font-size:26px}
+ .shell .progress-patterns .focus-title{font-size:23px}
+ .shell .home-recent{padding-inline:16px}
+ .shell .progress-patterns .focus-action{align-items:flex-start;flex-direction:column;gap:10px}
+}

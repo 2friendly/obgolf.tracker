@@ -54,7 +54,7 @@ export function ProgressDashboard({ goal, progress, insights, loading, error, pr
   const trendLabel = progress?.status === 'unsupported' ? 'No linked metric' : progress?.trend.direction === 'improving' ? 'Improving' : progress?.trend.direction === 'worsening' ? 'Needs attention' : progress?.trend.direction === 'stable' ? 'Holding steady' : 'Building a baseline';
   return <div className="progress-dashboard">
     <section className="progress-goal" aria-label="Primary goal progress">
-      <div className="sectionhead"><h2>{goal?.title??'Your goal'}</h2><button className="button small" onClick={onGoals}>Goals <ArrowUpRight size={16}/></button></div>
+      <div className="sectionhead"><div><span className="home-section-label">Primary goal</span><h2>{goal?.title??'Your goal'}</h2></div><button className="button small" onClick={onGoals}>Goals <ArrowUpRight size={16}/></button></div>
       {loading ? <p role="status" className="muted">Loading your progress…</p> : error ? <div role="alert" className="error">{error} <button className="button small" onClick={onRetry}>Retry</button></div> : !goal ? <div className="progress-no-goal"><Target size={24}/><h2>What do you want to improve?</h2><p className="muted">Choose a goal. Your rounds and practice will show how you’re progressing.</p><button className="button primary" onClick={onGoals}>Choose a goal</button></div> : <>
         <p className="progress-target">Target: <strong>{goal.type === 'score' ? 'below ' : ''}{goalValue(goal)}</strong>{goal.type === 'carry' ? ` · ${goal.club}` : ''}{goal.target_date ? ` · by ${goal.target_date}` : ''}</p>
         {!progress ? <p className="muted" role="status">Calculating progress…</p> : <>
