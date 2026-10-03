@@ -27,6 +27,8 @@ export type PlayerHoleStat = {
 export type RoundHole = {
   hole: number;
   par: number;
+  // Missing means confirmed for historical rounds; false means enter par during play.
+  parConfirmed?: boolean;
   score: number | null;
   distance?: number;
   playerStats?: PlayerHoleStat[];
@@ -132,6 +134,9 @@ export function updatePlayerHole(
   patch: Partial<Omit<PlayerHoleStat, "playerId">>,
 ) {
   const round = hydrateRound(source);
+  if (patch.completed && round.roundHoles[holeIndex]?.parConfirmed === false) {
+    throw new Error("Enter the hole par before finishing the hole.");
+  }
   const roundHoles = round.roundHoles.map((hole, index) => {
     if (index !== holeIndex) return hole;
     const playerStats = (hole.playerStats ?? []).map((stat) => stat.playerId === playerId ? { ...stat, ...patch } : stat);
@@ -144,6 +149,26 @@ export function updatePlayerHole(
       : score),
   }));
   return { ...round, roundHoles, players, clientUpdatedAt: new Date().toISOString() };
+}
+
+export function updateRoundHole(
+  source: RoundRecord,
+  holeIndex: number,
+  patch: { par?: number; distance?: number },
+): RoundRecord {
+  if (patch.par !== undefined && (!Number.isInteger(patch.par) || patch.par < 3 || patch.par > 6)) {
+    throw new Error("Par must be between 3 and 6.");
+  }
+  if (patch.distance !== undefined && (!Number.isFinite(patch.distance) || patch.distance < 0 || patch.distance > 1000)) {
+    throw new Error("Distance must be between 0 and 1000 metres.");
+  }
+  return {
+    ...source,
+    roundHoles: source.roundHoles.map((hole, index) => index === holeIndex
+      ? { ...hole, ...patch, ...(patch.par !== undefined ? { parConfirmed: true } : {}) }
+      : hole),
+    clientUpdatedAt: new Date().toISOString(),
+  };
 }
 
 export function attributedPenaltyStrokes(shots: RoundShot[]) {

@@ -12,3 +12,5 @@
 .hole-progress button{flex-basis:44px;width:44px;height:44px}.setup-hole select,.setup-hole input{height:44px}.shot-results button{min-height:44px}
 
 .round-card-actions{display:flex;margin-top:16px}.round-card-actions .button{min-height:44px}
+
+.hole-setup{margin:0 0 12px}.hole-setup-fields{display:grid;grid-template-columns:minmax(100px,1fr) minmax(0,1.5fr);gap:12px}.hole-setup-fields select,.hole-setup-fields input{width:100%;min-width:0;min-height:48px;background:#111c15;color:#edf4e9;border:1px solid #455a48;border-radius:5px;padding:9px;font-size:16px}.finish-hole:disabled{opacity:.45;cursor:not-allowed}

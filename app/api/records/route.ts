@@ -23,6 +23,7 @@ const playerHoleStatSchema = z.object({
 const holeSchema = z.object({
   hole: z.number().int().min(1).max(18),
   par: z.number().int().min(3).max(6),
+  parConfirmed: z.boolean().optional(),
   score: z.number().int().min(1).max(30).nullable(),
   distance: z.number().min(0).max(1000).optional(),
   playerStats: z.array(playerHoleStatSchema).max(8).optional(),
@@ -73,6 +74,9 @@ const recordSchema = z.object({
   }
   if (record.kind === "round" && record.roundHoles?.some((hole) => hole.playerStats?.some((stat) => !record.players?.some((player) => player.id === stat.playerId)))) {
     context.addIssue({ code: "custom", message: "Hole data references an unknown player", path: ["roundHoles"] });
+  }
+  if (record.kind === "round" && record.roundHoles?.some((hole) => hole.parConfirmed === false && (hole.playerStats?.some((stat) => stat.completed) || record.status === "complete"))) {
+    context.addIssue({ code: "custom", message: "Enter par before completing a hole", path: ["roundHoles"] });
   }
 });
 
